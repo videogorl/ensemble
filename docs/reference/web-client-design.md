@@ -1,6 +1,6 @@
 # Web client and CloudKit settings design
 
-Status: planning. Felicity approved decisions 1 to 3 on 2026-11-10 (section 8);
+Status: planning. Felicity approved decisions 1 to 5 by 2026-11-17 (section 8);
 no implementation until she says to start. Written 2026-11-10 against
 `402c9c03` on `develop`. Not part of the rearchitecture plan; schedule it
 after step 3 closes (section 7).
@@ -18,8 +18,9 @@ The browser talks to two services:
 - **CloudKit**, through CloudKit JS, for Ensemble's synced settings.
 - **Plex**, through its HTTP API, for sign-in, the library, and streams.
 
-Out of scope for the first release: offline downloads, gapless playback,
-Siri, the watch, and editing Plex playlists. These can follow.
+Out of scope for the first release: offline downloads, copying music to
+devices, gapless playback, Siri, the watch, and editing Plex playlists.
+Offline downloads and device copying are planned in sections 5.6 and 5.7.
 
 ## 2. What blocks this today
 
@@ -323,8 +324,8 @@ authoritative.
 - Plex universal transcode (HLS): native in Safari, hls.js elsewhere. Both
   paths stay supported, as on native.
 - Media Session API for lock-screen, keyboard and headset controls.
-- Known gaps: gapless playback, reliable background playback on iPhone
-  Safari, offline downloads.
+- Known gaps: gapless playback and reliable background playback on iPhone
+  Safari. Offline downloads are section 5.6.
 
 ### 5.5 Settings
 
@@ -340,6 +341,67 @@ item ID and source key. Hiding or unhiding on the web writes a
 `HiddenMediaMutation` the native apps pick up. That record holds every hide
 ever made in one JSON array, so it has a size ceiling of CloudKit's 1 MB per
 record, roughly several thousand entries; split it per source if it nears that.
+
+### 5.6 Offline downloads (installed web app)
+
+Feasible as a progressive web app. Researched 2026-11-17; not prototyped.
+
+- **Install:** a web app manifest plus a service worker make the site
+  installable: Add to Home Screen on iPhone and iPad, Add to Dock in Safari
+  on the Mac, and Install in Chrome and Edge.
+- **Download:** fetch the file from Plex (the same direct-file URL playback
+  uses, or a transcoded file for smaller downloads) and write it to the
+  Origin Private File System, the browser's private file storage. OPFS
+  writes in chunks without holding a whole album in memory. A small
+  IndexedDB table records what is downloaded, its source key and size.
+- **Play:** the service worker answers requests for a downloaded track from
+  OPFS, including byte-range requests so seeking works, and falls through
+  to Plex otherwise. The player keeps one code path.
+- **Downloads only run while the app is open.** Background Fetch, which lets
+  downloads finish after the tab closes, exists only in Chromium, and
+  Chromium has proposed deprecating it. So downloads show progress, resume
+  where they stopped on next launch, and say so plainly.
+- **Storage is not guaranteed.** IndexedDB, OPFS and the Cache API share one
+  quota per site. Since Safari 17 an installed web app gets the same quota
+  as in the browser, and the 7-day deletion of unused site data does not
+  apply to installed apps; a browser tab keeps that risk. The app calls
+  `navigator.storage.persist()` and shows usage from
+  `navigator.storage.estimate()`, but treats both as best effort: the
+  system may still clear downloads when the device runs low on space, and
+  reports on whether iOS ever grants `persist()` disagree. On launch the app
+  checks the downloads table against OPFS and marks missing files for
+  download again instead of failing at play time.
+- **Downloads are per browser and per device.** They do not sync, as on
+  native. A synced "download this" list could follow later; it would carry
+  item identities only.
+
+To prove before building: on an iPhone with the app installed, download an
+album, turn on Airplane Mode, force-quit, relaunch and play with seeking;
+then leave it for more than 7 days and check the files are still there.
+
+### 5.7 Copying music to devices
+
+Researched 2026-11-17 for a future feature; nothing planned to build yet.
+The web can write to a device only when the computer mounts it as a normal
+drive, and only in Chromium browsers on the desktop.
+
+| Target | On the web | Notes |
+|---|---|---|
+| SD card, USB stick, music player that mounts as a drive (Rockbox, many DAPs) | **Yes, Chrome and Edge on the desktop** | The File System Access API: the user picks the card's folder once with `showDirectoryPicker()`, the app keeps the handle and asks again for permission on later visits, then writes files and folders. Safari and Firefox lack the folder picker; there the fallback is downloading a zip to copy by hand. |
+| iPod classic, nano, mini, shuffle (disk mode) | **Possible, Chrome and Edge on the desktop, with real work** | Writing the files is the same as an SD card, but the iPod only lists songs that are in its iTunesDB database. TunesReloaded does this in a browser: libgpod compiled to WebAssembly writes the database, and WebUSB reads the model, because some models need a device-specific checksum. A Rockbox iPod needs no database and is just a drive. iPod touch is not possible. |
+| Burning an audio CD | **No** | No web API reaches an optical drive, and WebUSB cannot claim USB storage devices. |
+| Ripping a CD | **No** | Same reason. |
+
+The native Mac app is the better home for all four. It can write to any
+mounted drive with no browser limits, build the iPod database with the same
+library, and burn audio CDs through Apple's DiscRecording framework. So the
+plan is: build device copying natively on the Mac first; add SD card
+copying to the web app only if the web app gets used on Windows or Linux
+desktops, where there is no native app.
+
+Format matters for every target. Many players and stock iPod firmware cannot
+play FLAC, so copying needs a per-device format choice, using Plex's
+transcoder to produce MP3 or AAC.
 
 ## 6. Repository and hosting
 
@@ -366,8 +428,9 @@ while the native app stays private, or if it gets a different owner.
    the step 3 freeze does not cover, but it is still a behavior change to
    sync and deserves its own window.
 2. Web first release: sign-in, browse, search, play, queue, settings.
-3. Later: gapless playback, live setting updates, home-screen install,
-   limited offline caching.
+3. Later: gapless playback, live setting updates, home-screen install and
+   offline downloads (section 5.6).
+4. Device copying (section 5.7) belongs to the native Mac app first.
 
 ## 8. Decisions
 
@@ -384,4 +447,6 @@ Still planning; nothing is implemented. Answers from Felicity on 2026-11-10:
 4. Web UI framework: **Svelte**. Apple Music's own web app
    (music.apple.com) is built with Svelte; checked 2026-11-10 by its served
    HTML, which carries thousands of Svelte-scoped class names.
-5. Domain: open. Candidate: `app.ensemble.videogorl.me`.
+5. Domain: **`ensemble.videogorl.app`** (Felicity, 2026-11-17). Add it to the
+   CloudKit web token's allowed origins and as the Cloudflare Pages custom
+   domain.
