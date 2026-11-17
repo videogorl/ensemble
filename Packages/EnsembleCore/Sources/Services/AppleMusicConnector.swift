@@ -218,6 +218,11 @@ public actor AppleMusicConnector:
         return fetch.batch
     }
 
+    /// Whether the most recent complete library read listed this catalog song.
+    func lastLibraryReadLists(catalogID: String) -> Bool {
+        catalogIDsByLibraryID.values.contains(catalogID)
+    }
+
     private struct MusicKitLibrarySource: AppleMusicLibrarySource {
         let connector: AppleMusicConnector
 

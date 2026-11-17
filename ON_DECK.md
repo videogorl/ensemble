@@ -5,22 +5,6 @@ API that would replace custom machinery. Each entry gives evidence, impact and a
 step, and says whether it is suspected or confirmed. Remove an entry when it is fixed.
 An entry does not authorize the work; Felicity picks what gets done.
 
-## Confirmed: a song added from Apple Music search does not appear in the library right away (2026-11-17)
-
-- Evidence: iPhone SE, develop at `ea892562`, session logs in
-  `/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/tmp.Ej53cK6UwP` and `tmp.vDjR8FaLTy`. "Blackbird" added from the
-  Apple Music search scope: `mutation accepted outcome=added` at 06:45:51, the follow-up sync read the library one
-  second later (`API 20 songs (total 20), MusicKit 21`, inventory withheld) and logged `Source library reconciliation
-  completed` without the song. A relaunch at 06:47 (incremental startup sync) did not bring it in either. A forced full
-  sync at 06:48 did: the White Album appeared with the one song.
-- Impact: the toast says "Added to Library" but the song, album and artist are missing from Ensemble until some later
-  sync; the reconciliation logs success although the added catalog ID is not in the result.
-- Suspected cause: Apple's library API lists a new song a few seconds to minutes after MusicKit accepts the add, and
-  `reconcileLibraryAddition` syncs once, immediately. Not checked: whether the incremental startup sync reads Apple
-  Music songs at all.
-- Next step: have the reconciliation check that the added catalog ID came back and retry a few times with a delay
-  (or upsert the one song from the catalog response at once); decide with Felicity.
-
 ## Open: Siri AI does not route voice add or create station to the app (2026-11-12)
 
 - Evidence: six phone builds on an iPhone 16 Pro (iOS 27.3, typed Siri); table in the investigation note, "Withdrawn

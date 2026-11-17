@@ -1426,6 +1426,8 @@ public final class SyncCoordinator {
         }
 
         let addToLibrary: () async throws -> MusicSourceLibraryAddOutcome
+        // Whether the last library read listed the song; nil when nothing can tell.
+        var libraryListsSong: (() async -> Bool)?
         if let sourceLibraryAddHandlerForTesting {
             addToLibrary = { try await sourceLibraryAddHandlerForTesting(catalogID) }
         } else {
@@ -1435,6 +1437,7 @@ public final class SyncCoordinator {
                 throw PlaylistMutationError.invalidSource
             }
             addToLibrary = { try await provider.addToLibrary(catalogID: catalogID) }
+            libraryListsSong = { await provider.lastLibraryReadLists(catalogID: catalogID) }
             #else
             throw PlaylistMutationError.invalidSource
             #endif
@@ -1450,7 +1453,8 @@ public final class SyncCoordinator {
                 activeSourceLibraryAdds.removeValue(forKey: operationKey)
                 reconcileLibraryAddition(
                     source: .appleMusic,
-                    catalogID: catalogID
+                    catalogID: catalogID,
+                    libraryListsSong: libraryListsSong
                 )
             }
             return outcome
@@ -1462,23 +1466,36 @@ public final class SyncCoordinator {
         }
     }
 
+    /// Apple's library list can trail an accepted add by seconds to minutes, so sync again, with growing
+    /// waits, until a read lists the song.
     private func reconcileLibraryAddition(
         source: MusicSourceIdentifier,
-        catalogID: String
+        catalogID: String,
+        libraryListsSong: (() async -> Bool)?
     ) {
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            let outcome = await sync(source: source)
-            switch outcome {
-            case .success:
-                EnsembleLogger.info(
-                    "Source library reconciliation completed source=\(source.compositeKey) catalogID=\(catalogID)"
-                )
-            case .partial(let message), .failure(let message):
-                EnsembleLogger.error(
-                    "Source library reconciliation failed source=\(source.compositeKey) catalogID=\(catalogID) message=\(message)"
-                )
+            let retryDelays: [UInt64] = libraryListsSong == nil ? [0] : [0, 2, 4, 8, 16, 30, 60]
+            for (index, delay) in retryDelays.enumerated() {
+                if delay > 0 {
+                    guard (try? await Task.sleep(nanoseconds: delay * 1_000_000_000)) != nil else { return }
+                }
+                guard let self else { return }
+                switch await sync(source: source) {
+                case .success:
+                    guard await libraryListsSong?() ?? true else { continue }
+                    EnsembleLogger.info(
+                        "Source library reconciliation completed source=\(source.compositeKey) catalogID=\(catalogID) attempts=\(index + 1)"
+                    )
+                    return
+                case .partial(let message), .failure(let message):
+                    EnsembleLogger.error(
+                        "Source library reconciliation failed source=\(source.compositeKey) catalogID=\(catalogID) attempt=\(index + 1) message=\(message)"
+                    )
+                }
             }
+            EnsembleLogger.error(
+                "Source library reconciliation did not converge source=\(source.compositeKey) catalogID=\(catalogID)"
+            )
         }
     }
 
