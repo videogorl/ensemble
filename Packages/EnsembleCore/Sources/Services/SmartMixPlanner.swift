@@ -57,6 +57,8 @@ public struct SmartMixAnalysis: Equatable, Sendable {
     public let leadingSilence: TimeInterval
     public let trailingSilence: TimeInterval
     public let analyzedDuration: TimeInterval
+    /// How long the track has been dying away when it ends: about 0 for a cold stop, several seconds for a fade-out.
+    public let outroDecay: TimeInterval
     public let introTempo: SmartMixTempoAnalysis
     public let outroTempo: SmartMixTempoAnalysis
 
@@ -72,12 +74,14 @@ public struct SmartMixAnalysis: Equatable, Sendable {
         leadingSilence: TimeInterval,
         trailingSilence: TimeInterval,
         analyzedDuration: TimeInterval,
+        outroDecay: TimeInterval = 0,
         introTempo: SmartMixTempoAnalysis = .unavailable,
         outroTempo: SmartMixTempoAnalysis = .unavailable
     ) {
         self.leadingSilence = max(0, leadingSilence)
         self.trailingSilence = max(0, trailingSilence)
         self.analyzedDuration = max(0, analyzedDuration)
+        self.outroDecay = outroDecay.isFinite ? max(0, outroDecay) : 0
         self.introTempo = introTempo
         self.outroTempo = outroTempo
     }
@@ -139,9 +143,11 @@ public struct SmartMixPlan: Equatable, Sendable {
 }
 
 public enum SmartMixPlanner {
-    public static let defaultTransitionDuration: TimeInterval = 10
-    public static let minimumTransitionDuration: TimeInterval = 5
-    public static let maximumIntroCut: TimeInterval = 10
+    /// The overlap covers the outgoing track's own decay, within these bounds.
+    public static let maximumTransitionDuration: TimeInterval = 10
+    public static let minimumTransitionDuration: TimeInterval = 2
+    public static let minimumTrackDuration: TimeInterval = 10
+    public static let maximumSilenceTrim: TimeInterval = 10
     public static let minimumTempoTransitionDuration: TimeInterval = 8
     public static let minimumTempoConfidence: Double = 0.65
     public static let minimumStrongTempoConfidence: Double = 0.82
@@ -159,22 +165,27 @@ public enum SmartMixPlanner {
         tempoMatchingAllowed: Bool = true
     ) -> SmartMixPlan? {
         guard outgoingDuration.isFinite, incomingDuration.isFinite else { return nil }
-        guard outgoingDuration >= minimumTransitionDuration * 2 else { return nil }
-        guard incomingDuration >= minimumTransitionDuration * 2 else { return nil }
+        guard outgoingDuration >= minimumTrackDuration, incomingDuration >= minimumTrackDuration else { return nil }
 
-        let outgoingTrim = min(max(0, outgoingAnalysis?.trailingSilence ?? 0), maximumIntroCut)
-        let incomingTrim = min(max(0, incomingAnalysis?.leadingSilence ?? 0), maximumIntroCut)
+        let outgoingTrim = min(max(0, outgoingAnalysis?.trailingSilence ?? 0), maximumSilenceTrim)
+        let incomingTrim = min(max(0, incomingAnalysis?.leadingSilence ?? 0), maximumSilenceTrim)
 
-        let maxOutgoingWindow = max(minimumTransitionDuration, outgoingDuration - outgoingTrim)
-        let desiredDuration = min(defaultTransitionDuration, maxOutgoingWindow / 2, incomingDuration / 2)
-        let transitionDuration = min(
-            defaultTransitionDuration,
-            max(minimumTransitionDuration, desiredDuration)
+        // Overlap only what the outgoing track is already giving up: a cold ending gets the
+        // shortest blend, a fade-out is covered for as long as it lasts.
+        let wantedDuration = min(
+            maximumTransitionDuration,
+            max(minimumTransitionDuration, outgoingAnalysis?.outroDecay ?? 0)
         )
+        let transitionDuration = min(
+            wantedDuration,
+            (outgoingDuration - outgoingTrim) / 2,
+            (incomingDuration - incomingTrim) / 2
+        )
+        guard transitionDuration >= minimumTransitionDuration else { return nil }
 
-        let outgoingStart = max(0, outgoingDuration - outgoingTrim - transitionDuration)
-        let introCut = min(maximumIntroCut, max(incomingTrim, transitionDuration))
-        let baseIncomingStart = min(max(0, introCut), max(0, incomingDuration - transitionDuration))
+        let outgoingStart = outgoingDuration - outgoingTrim - transitionDuration
+        // The incoming track plays from its first sound; nothing of it is skipped.
+        let baseIncomingStart = incomingTrim
         let promotionTime = transitionDuration / 2
         let tempoDecision = tempoDecision(
             outgoingStartTime: outgoingStart,
@@ -197,7 +208,7 @@ public enum SmartMixPlanner {
             incomingPlaybackRate: tempoDecision.incomingPlaybackRate,
             outgoingPlaybackRate: tempoDecision.outgoingPlaybackRate,
             incomingBeatOffset: tempoDecision.beatOffset,
-            outgoingHighPassSweep: .subtle
+            outgoingHighPassSweep: transitionDuration >= minimumTempoTransitionDuration ? .subtle : nil
         )
     }
 
@@ -307,10 +318,9 @@ public enum SmartMixPlanner {
             offset += beatDuration
         }
 
-        let lowerBound = min(baseIncomingStartTime, max(minimumTransitionDuration, incomingTempo.windowStartTime))
-        let upperBound = min(maximumIntroCut, max(lowerBound, incomingDuration - transitionDuration))
-        let adjustedIncomingStart = min(max(baseIncomingStartTime + offset, lowerBound), upperBound)
-        return adjustedIncomingStart - baseIncomingStartTime
+        // Alignment may delay the incoming track by up to half a beat; it never skips further in.
+        let latestStart = max(baseIncomingStartTime, incomingDuration - transitionDuration)
+        return min(max(0, offset), latestStart - baseIncomingStartTime)
     }
 
     private static func positiveRemainder(_ value: TimeInterval, _ divisor: TimeInterval) -> TimeInterval {
@@ -436,6 +446,34 @@ public enum SmartMixTempoEstimator {
     }
 }
 
+public enum SmartMixEndingEstimator {
+    public static let decayThreshold: Float = 0.316 // -10 dB against the track's usual level
+    public static let frameDuration: TimeInterval = 0.1
+
+    /// Seconds at the end of `monoSamples` spent below the usual level. `monoSamples` should end
+    /// where the track's sound ends and cover enough before it to show the usual level.
+    public static func decayDuration(monoSamples: [Float], sampleRate: Double) -> TimeInterval {
+        let frameLength = Int(sampleRate * frameDuration)
+        guard frameLength > 0 else { return 0 }
+        let frameCount = monoSamples.count / frameLength
+        guard frameCount >= 80 else { return 0 }
+
+        var levels = [Float](repeating: 0, count: frameCount)
+        let offset = monoSamples.count - frameCount * frameLength
+        monoSamples.withUnsafeBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            for frame in 0 ..< frameCount {
+                vDSP_rmsqv(base + offset + frame * frameLength, 1, &levels[frame], vDSP_Length(frameLength))
+            }
+        }
+
+        let usual = levels[..<(frameCount / 2)].sorted()[frameCount / 4]
+        guard usual > 0 else { return 0 }
+        let quietFrames = levels.reversed().prefix { $0 < usual * decayThreshold }.count
+        return min(TimeInterval(quietFrames) * frameDuration, TimeInterval(frameCount / 2) * frameDuration)
+    }
+}
+
 private actor SmartMixSerialAnalyzer {
     func analysis(fileURL: URL) -> SmartMixAnalysis {
         SmartMixAnalysisService.analyze(fileURL: fileURL)
@@ -519,23 +557,21 @@ public final class SmartMixAnalysisService {
         let introTempoStart = min(max(leading, 0), max(0, duration - 1))
         let introTempoDuration = min(30, max(0, duration - introTempoStart))
         let introTempo = analyzeTempo(
-            file: file,
-            startTime: introTempoStart,
-            duration: introTempoDuration
+            mono: readMono(file: file, startTime: introTempoStart, duration: introTempoDuration),
+            sampleRate: sampleRate,
+            startTime: introTempoStart
         )
         let outroTempoEnd = max(0, duration - trailing)
         let outroTempoDuration = min(30, outroTempoEnd)
         let outroTempoStart = max(0, outroTempoEnd - outroTempoDuration)
-        let outroTempo = analyzeTempo(
-            file: file,
-            startTime: outroTempoStart,
-            duration: outroTempoDuration
-        )
+        let outroSamples = readMono(file: file, startTime: outroTempoStart, duration: outroTempoDuration)
+        let outroTempo = analyzeTempo(mono: outroSamples, sampleRate: sampleRate, startTime: outroTempoStart)
 
         return SmartMixAnalysis(
             leadingSilence: leading,
             trailingSilence: trailing,
             analyzedDuration: duration,
+            outroDecay: SmartMixEndingEstimator.decayDuration(monoSamples: outroSamples, sampleRate: sampleRate),
             introTempo: introTempo,
             outroTempo: outroTempo
         )
@@ -617,49 +653,44 @@ public final class SmartMixAnalysisService {
         return TimeInterval(frames) / file.processingFormat.sampleRate
     }
 
-    private static func analyzeTempo(
-        file: AVAudioFile,
-        startTime: TimeInterval,
-        duration: TimeInterval
-    ) -> SmartMixTempoAnalysis {
+    private static func readMono(file: AVAudioFile, startTime: TimeInterval, duration: TimeInterval) -> [Float] {
         let sampleRate = file.processingFormat.sampleRate
-        guard sampleRate > 0, duration >= 4 else { return .unavailable }
+        guard sampleRate > 0, duration > 0 else { return [] }
 
         let startFrame = max(0, AVAudioFramePosition(startTime * sampleRate))
         let remainingFrames = max(0, file.length - startFrame)
         let requestedFrames = AVAudioFrameCount(min(Double(remainingFrames), duration * sampleRate))
         guard requestedFrames > 0,
-              let buffer = AVAudioPCMBuffer(
-                pcmFormat: file.processingFormat,
-                frameCapacity: requestedFrames
-              ) else {
-            return .unavailable
+              let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: requestedFrames)
+        else {
+            return []
         }
 
         do {
             file.framePosition = startFrame
             try file.read(into: buffer, frameCount: requestedFrames)
         } catch {
-            return .unavailable
+            return []
         }
 
-        guard let channelData = buffer.floatChannelData else { return .unavailable }
+        guard let channelData = buffer.floatChannelData else { return [] }
         let channels = Int(buffer.format.channelCount)
         let frames = Int(buffer.frameLength)
-        guard channels > 0, frames > 0 else { return .unavailable }
+        guard channels > 0, frames > 0 else { return [] }
 
         var monoSamples = [Float](repeating: 0, count: frames)
         for channel in 0 ..< channels {
-            for frame in 0 ..< frames {
-                monoSamples[frame] += channelData[channel][frame]
-            }
+            vDSP_vadd(monoSamples, 1, channelData[channel], 1, &monoSamples, 1, vDSP_Length(frames))
         }
         if channels > 1 {
-            let scale = Float(1) / Float(channels)
-            for frame in 0 ..< frames {
-                monoSamples[frame] *= scale
-            }
+            var scale = Float(1) / Float(channels)
+            vDSP_vsmul(monoSamples, 1, &scale, &monoSamples, 1, vDSP_Length(frames))
         }
+        return monoSamples
+    }
+
+    private static func analyzeTempo(mono monoSamples: [Float], sampleRate: Double, startTime: TimeInterval) -> SmartMixTempoAnalysis {
+        guard sampleRate > 0, Double(monoSamples.count) >= 4 * sampleRate else { return .unavailable }
 
         guard let estimate = SmartMixTempoEstimator.estimate(
             monoSamples: monoSamples,
@@ -673,7 +704,7 @@ public final class SmartMixAnalysisService {
             confidence: estimate.confidence,
             beatAnchorTime: estimate.beatAnchorOffset.map { startTime + $0 },
             windowStartTime: startTime,
-            windowDuration: TimeInterval(frames) / sampleRate,
+            windowDuration: TimeInterval(monoSamples.count) / sampleRate,
             status: estimate.confidence >= SmartMixPlanner.minimumTempoConfidence ? .analyzed : .lowConfidence
         )
     }

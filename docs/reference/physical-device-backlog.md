@@ -1067,3 +1067,12 @@ Owed: the dragged card dims only while moving (not observed mid-drag); a reorder
 check ran before the drop-target change was added. A pin dropped on the search field types its id there. Evidence:
 `$TMPDIR/tmp.ZgjtsHljFx` (screenshots), `$TMPDIR/tmp.6CWfxnhYZR` (logs).
 
+## SmartMix overlap sizing (2026-11-17)
+
+Not run on any device or simulator yet; planner tests only.
+
+- SmartMix on, a song with a cold ending into any song: the next song starts from its first note, overlap about 2 s.
+- SmartMix on, a song that fades out into any song: the next song starts from its first note while the fade is
+  still audible; no silence between them.
+- Skip, seek and reorder during the short overlap behave as before.
+

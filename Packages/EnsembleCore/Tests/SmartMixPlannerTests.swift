@@ -2,57 +2,60 @@
 import XCTest
 
 final class SmartMixPlannerTests: XCTestCase {
-    func testPlanUsesDefaultTenSecondTransitionForNormalTracks() {
-        let plan = SmartMixPlanner.plan(
-            outgoingDuration: 180,
-            incomingDuration: 200,
-            outgoingAnalysis: .unavailable,
-            incomingAnalysis: .unavailable
-        )
+    func testPlanSizesOverlapFromOutgoingDecayAndNeverSkipsIncomingAudio() {
+        // outroDecay, trailing silence, leading silence -> duration, outgoing start, incoming start, filtered
+        let cases: [(Double, Double, Double, Double, Double, Double, Bool)] = [
+            (0, 0, 0, 2, 178, 0, false),      // cold ending: shortest overlap, right at the end
+            (6, 0, 0, 6, 174, 0, false),      // fade-out: overlap covers the fade
+            (25, 0, 0, 10, 170, 0, true),     // long fade: capped
+            (6, 7, 0, 6, 167, 0, false),      // trailing silence is trimmed before the overlap
+            (0, 0, 3, 2, 178, 3, false),      // incoming starts at its first sound
+        ]
 
-        XCTAssertEqual(plan?.transitionDuration, 10)
-        XCTAssertEqual(plan?.outgoingStartTime, 170)
-        XCTAssertEqual(plan?.incomingStartTime, 10)
-        XCTAssertEqual(plan?.metadataPromotionTime, 5)
-        XCTAssertEqual(plan?.skipToIncomingThreshold, 5)
-        XCTAssertFalse(plan?.tempoMatched ?? true)
-        XCTAssertEqual(plan?.incomingPlaybackRate, 1)
+        for (decay, trailing, leading, duration, outgoingStart, incomingStart, filtered) in cases {
+            let plan = SmartMixPlanner.plan(
+                outgoingDuration: 180,
+                incomingDuration: 200,
+                outgoingAnalysis: SmartMixAnalysis(leadingSilence: 0, trailingSilence: trailing, analyzedDuration: 180, outroDecay: decay),
+                incomingAnalysis: SmartMixAnalysis(leadingSilence: leading, trailingSilence: 0, analyzedDuration: 200)
+            )
+
+            XCTAssertEqual(plan?.transitionDuration, duration, "decay \(decay)")
+            XCTAssertEqual(plan?.outgoingStartTime, outgoingStart, "decay \(decay)")
+            XCTAssertEqual(plan?.incomingStartTime, incomingStart, "decay \(decay)")
+            XCTAssertEqual(plan?.outgoingHighPassSweep != nil, filtered, "decay \(decay)")
+            XCTAssertEqual(plan?.metadataPromotionTime, duration / 2, "decay \(decay)")
+        }
     }
 
-    func testPlanTrimsOutgoingSilenceBeforeChoosingTransitionStart() {
-        let plan = SmartMixPlanner.plan(
-            outgoingDuration: 180,
-            incomingDuration: 200,
-            outgoingAnalysis: SmartMixAnalysis(leadingSilence: 0, trailingSilence: 7, analyzedDuration: 180),
-            incomingAnalysis: .unavailable
-        )
-
-        XCTAssertEqual(plan?.transitionDuration, 10)
-        XCTAssertEqual(plan?.outgoingStartTime, 163)
-    }
-
-    func testPlanCutsIntoIncomingPastDetectedIntroSilence() {
-        let plan = SmartMixPlanner.plan(
-            outgoingDuration: 180,
-            incomingDuration: 200,
-            outgoingAnalysis: .unavailable,
-            incomingAnalysis: SmartMixAnalysis(leadingSilence: 6, trailingSilence: 0, analyzedDuration: 200)
-        )
-
-        XCTAssertEqual(plan?.incomingStartTime, 10)
-    }
-
-    func testPlanClampsShortTracksBelowDefaultTransition() {
+    func testPlanClampsOverlapToHalfOfShortTracks() {
         let plan = SmartMixPlanner.plan(
             outgoingDuration: 14,
             incomingDuration: 16,
-            outgoingAnalysis: .unavailable,
+            outgoingAnalysis: SmartMixAnalysis(leadingSilence: 0, trailingSilence: 0, analyzedDuration: 14, outroDecay: 10),
             incomingAnalysis: .unavailable
         )
 
         XCTAssertEqual(plan?.transitionDuration, 7)
         XCTAssertEqual(plan?.metadataPromotionTime, 3.5)
         XCTAssertEqual(plan?.skipToIncomingThreshold, 3.5)
+    }
+
+    func testEndingEstimatorMeasuresHowLongTheTrackDiesAway() {
+        let sampleRate = 8_000.0
+        func track(fadeSeconds: Double) -> [Float] {
+            let total = Int(sampleRate * 30)
+            let fadeStart = total - Int(sampleRate * fadeSeconds)
+            return (0 ..< total).map { index in
+                let level = index < fadeStart ? 1 : max(0, 1 - Double(index - fadeStart) / (sampleRate * fadeSeconds))
+                return Float(level * sin(Double(index) * 0.3))
+            }
+        }
+
+        XCTAssertEqual(SmartMixEndingEstimator.decayDuration(monoSamples: track(fadeSeconds: 0.01), sampleRate: sampleRate), 0, accuracy: 0.11)
+        // A linear 8 s fade is 10 dB down for its last 2.5 s.
+        XCTAssertEqual(SmartMixEndingEstimator.decayDuration(monoSamples: track(fadeSeconds: 8), sampleRate: sampleRate), 2.5, accuracy: 0.2)
+        XCTAssertEqual(SmartMixEndingEstimator.decayDuration(monoSamples: [], sampleRate: sampleRate), 0)
     }
 
     func testPlanRejectsTracksTooShortForSmartMix() {
@@ -96,6 +99,7 @@ final class SmartMixPlannerTests: XCTestCase {
                 leadingSilence: 0,
                 trailingSilence: 0,
                 analyzedDuration: 180,
+                outroDecay: 10,
                 outroTempo: tempo(bpm: 120, confidence: 0.9)
             ),
             incomingAnalysis: SmartMixAnalysis(
@@ -120,6 +124,7 @@ final class SmartMixPlannerTests: XCTestCase {
                 leadingSilence: 0,
                 trailingSilence: 0,
                 analyzedDuration: 180,
+                outroDecay: 10,
                 outroTempo: tempo(bpm: 120, confidence: 0.75)
             ),
             incomingAnalysis: SmartMixAnalysis(
@@ -143,6 +148,7 @@ final class SmartMixPlannerTests: XCTestCase {
                 leadingSilence: 0,
                 trailingSilence: 0,
                 analyzedDuration: 180,
+                outroDecay: 10,
                 outroTempo: tempo(bpm: 120, confidence: 0.95)
             ),
             incomingAnalysis: SmartMixAnalysis(
@@ -166,6 +172,7 @@ final class SmartMixPlannerTests: XCTestCase {
                 leadingSilence: 0,
                 trailingSilence: 0,
                 analyzedDuration: 180,
+                outroDecay: 10,
                 outroTempo: tempo(bpm: 120, confidence: 0.5)
             ),
             incomingAnalysis: SmartMixAnalysis(
@@ -189,6 +196,7 @@ final class SmartMixPlannerTests: XCTestCase {
                 leadingSilence: 0,
                 trailingSilence: 0,
                 analyzedDuration: 180,
+                outroDecay: 10,
                 outroTempo: tempo(bpm: 120, confidence: 0.9)
             ),
             incomingAnalysis: SmartMixAnalysis(
@@ -211,6 +219,7 @@ final class SmartMixPlannerTests: XCTestCase {
                 leadingSilence: 0,
                 trailingSilence: 0,
                 analyzedDuration: 180,
+                outroDecay: 10,
                 outroTempo: tempo(bpm: 120, confidence: 0.9)
             ),
             incomingAnalysis: SmartMixAnalysis(
@@ -226,27 +235,30 @@ final class SmartMixPlannerTests: XCTestCase {
         XCTAssertEqual(plan?.outgoingPlaybackRate ?? 0, 1, accuracy: 0.0001)
     }
 
-    func testPlanBeatOffsetStaysInsideIntroCutBounds() {
-        let plan = SmartMixPlanner.plan(
-            outgoingDuration: 180,
-            incomingDuration: 200,
-            outgoingAnalysis: SmartMixAnalysis(
-                leadingSilence: 0,
-                trailingSilence: 0,
-                analyzedDuration: 180,
-                outroTempo: tempo(bpm: 120, confidence: 0.9, beatAnchorTime: 0)
-            ),
-            incomingAnalysis: SmartMixAnalysis(
-                leadingSilence: 0,
-                trailingSilence: 0,
-                analyzedDuration: 200,
-                introTempo: tempo(bpm: 120, confidence: 0.9, beatAnchorTime: 0.25)
+    func testPlanBeatOffsetOnlyDelaysIncomingTrack() {
+        // outgoing beat anchor -> incoming start. Alignment that would need an earlier start is dropped.
+        for (outgoingAnchor, expectedStart) in [(0.4, 0.1), (0.1, 0.0)] {
+            let plan = SmartMixPlanner.plan(
+                outgoingDuration: 180,
+                incomingDuration: 200,
+                outgoingAnalysis: SmartMixAnalysis(
+                    leadingSilence: 0,
+                    trailingSilence: 0,
+                    analyzedDuration: 180,
+                    outroDecay: 10,
+                    outroTempo: tempo(bpm: 120, confidence: 0.9, beatAnchorTime: outgoingAnchor)
+                ),
+                incomingAnalysis: SmartMixAnalysis(
+                    leadingSilence: 0,
+                    trailingSilence: 0,
+                    analyzedDuration: 200,
+                    introTempo: tempo(bpm: 120, confidence: 0.9, beatAnchorTime: 0)
+                )
             )
-        )
 
-        XCTAssertTrue(plan?.tempoMatched ?? false)
-        XCTAssertEqual(plan?.incomingBeatOffset ?? 0, -0.25, accuracy: 0.0001)
-        XCTAssertEqual(plan?.incomingStartTime ?? 0, 9.75, accuracy: 0.0001)
+            XCTAssertTrue(plan?.tempoMatched ?? false)
+            XCTAssertEqual(plan?.incomingStartTime ?? -1, expectedStart, accuracy: 0.0001)
+        }
     }
 
     func testPlanDisablesTempoMatchForShortTransition() {
@@ -257,6 +269,7 @@ final class SmartMixPlannerTests: XCTestCase {
                 leadingSilence: 0,
                 trailingSilence: 0,
                 analyzedDuration: 14,
+                outroDecay: 10,
                 outroTempo: tempo(bpm: 120, confidence: 0.9)
             ),
             incomingAnalysis: SmartMixAnalysis(
