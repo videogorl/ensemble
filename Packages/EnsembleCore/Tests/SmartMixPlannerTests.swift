@@ -288,24 +288,21 @@ final class SmartMixPlannerTests: XCTestCase {
         XCTAssertFalse(plan?.tempoMatched ?? true)
     }
 
-    func testTempoEstimatorDetectsSyntheticPulseTempo() {
-        let estimate = SmartMixTempoEstimator.estimateEnvelope(
-            pulseEnvelope(bpm: 120, duration: 20),
-            envelopeSampleRate: 50
-        )
+    func testTempoEstimatorFindsTempoAndBeatsInClickTracks() throws {
+        let firstClick = 0.25
+        for nominal in [90.0, 120, 150] {
+            let (samples, period) = clickTrack(bpm: nominal, firstClick: firstClick)
+            let bpm = 60 / period
+            let estimate = try XCTUnwrap(SmartMixTempoEstimator.estimate(monoSamples: samples, sampleRate: 44_100), "\(nominal) BPM")
+            XCTAssertEqual(estimate.bpm, bpm, accuracy: bpm * 0.015, "\(nominal) BPM")
+            XCTAssertGreaterThanOrEqual(estimate.confidence, 0.65, "\(nominal) BPM")
+            let anchor = try XCTUnwrap(estimate.beatAnchorOffset)
+            let drift = (anchor - firstClick).truncatingRemainder(dividingBy: period)
+            let distance = min(abs(drift), period - abs(drift))
+            XCTAssertLessThanOrEqual(distance, 0.04, "\(nominal) BPM anchor \(anchor)")
+        }
 
-        XCTAssertEqual(estimate?.bpm ?? 0, 120, accuracy: 0.1)
-        XCTAssertGreaterThanOrEqual(estimate?.confidence ?? 0, SmartMixPlanner.minimumTempoConfidence)
-        XCTAssertEqual(estimate?.beatAnchorOffset ?? -1, 0.5, accuracy: 0.001)
-    }
-
-    func testTempoEstimatorReturnsNilForFlatEnvelope() {
-        let estimate = SmartMixTempoEstimator.estimateEnvelope(
-            [Float](repeating: 0.2, count: 1_000),
-            envelopeSampleRate: 50
-        )
-
-        XCTAssertNil(estimate)
+        XCTAssertNil(SmartMixTempoEstimator.estimate(monoSamples: [Float](repeating: 0, count: 44_100 * 20), sampleRate: 44_100))
     }
 
     private func tempo(
@@ -323,22 +320,24 @@ final class SmartMixPlannerTests: XCTestCase {
         )
     }
 
-    private func pulseEnvelope(
-        bpm: Double,
-        duration: TimeInterval,
-        sampleRate: Double = 50
-    ) -> [Float] {
-        let count = Int(duration * sampleRate)
-        let interval = 60 / bpm
-        var envelope = [Float](repeating: 0, count: count)
-        var beatTime = 0.5
-        while beatTime < duration {
-            let index = Int(beatTime * sampleRate)
-            if envelope.indices.contains(index) {
-                envelope[index] = 1
+    /// Beats are a short cluster of bursts, so each onset spans a few analysis frames as a real attack does.
+    /// The period is a whole number of analysis hops (512 samples): a perfectly periodic train with a
+    /// fractional hop count splits its autocorrelation peak between two lags and can read as half tempo.
+    private func clickTrack(bpm: Double, firstClick: TimeInterval, duration: TimeInterval = 20) -> (samples: [Float], period: TimeInterval) {
+        let rate = 44_100.0
+        let period = (60 / bpm * rate / 512).rounded() * 512 / rate
+        var samples = [Float](repeating: 0, count: Int(duration * rate))
+        var time = firstClick
+        while time < duration - 0.1 {
+            for spread in [-0.012, 0, 0.012] {
+                let start = Int((time + spread) * rate)
+                for index in 0 ..< 2_000 where start + index < samples.count {
+                    let seconds = Double(index) / rate
+                    samples[start + index] += Float(exp(-seconds * 100) * sin(2 * .pi * 1_000 * seconds))
+                }
             }
-            beatTime += interval
+            time += period
         }
-        return envelope
+        return (samples, period)
     }
 }

@@ -336,9 +336,16 @@ public struct SmartMixTempoEstimate: Equatable, Sendable {
     }
 }
 
+/// Tempo from spectral onset strength: autocorrelation reinforced at 2x and 4x the period,
+/// weighted toward 120 BPM. Mirrors the `spectral` estimator in scripts/automix-lab/tempo_eval.py.
 public enum SmartMixTempoEstimator {
     public static let minimumBPM: Double = 70
     public static let maximumBPM: Double = 180
+
+    private static let analysisRate = 11_025.0
+    private static let window = 1024
+    private static let hop = 128
+    private static let bandCount = 24
 
     public static func estimate(
         monoSamples: [Float],
@@ -346,98 +353,114 @@ public enum SmartMixTempoEstimator {
     ) -> SmartMixTempoEstimate? {
         guard sampleRate > 0, monoSamples.count >= Int(sampleRate * 4) else { return nil }
 
-        let hopSize = max(512, Int(sampleRate * 0.023))
-        let frameCount = monoSamples.count / hopSize
-        guard frameCount >= 16 else { return nil }
+        let factor = max(1, Int((sampleRate / analysisRate).rounded()))
+        let reducedCount = monoSamples.count / factor
+        var reduced = [Float](repeating: 0, count: reducedCount)
+        let averaging = [Float](repeating: 1 / Float(factor), count: factor)
+        vDSP_desamp(monoSamples, vDSP_Stride(factor), averaging, &reduced, vDSP_Length(reducedCount), vDSP_Length(factor))
 
-        var envelope: [Float] = []
-        envelope.reserveCapacity(frameCount)
-
-        var offset = 0
-        while offset + hopSize <= monoSamples.count {
-            var rms: Float = 0
-            monoSamples.withUnsafeBufferPointer { buffer in
-                if let baseAddress = buffer.baseAddress {
-                    vDSP_rmsqv(baseAddress + offset, 1, &rms, vDSP_Length(hopSize))
-                }
-            }
-            envelope.append(rms)
-            offset += hopSize
-        }
-
-        return estimateEnvelope(envelope, envelopeSampleRate: sampleRate / Double(hopSize))
+        let frameRate = sampleRate / Double(factor) / Double(hop)
+        return estimate(onsetStrength: onsetStrength(reduced), frameRate: frameRate)
     }
 
-    public static func estimateEnvelope(
-        _ envelope: [Float],
-        envelopeSampleRate: Double
-    ) -> SmartMixTempoEstimate? {
-        guard envelopeSampleRate > 0, envelope.count >= 16 else { return nil }
+    /// Estimates tempo from an onset-strength curve sampled at `frameRate` frames per second.
+    static func estimate(onsetStrength flux: [Float], frameRate: Double) -> SmartMixTempoEstimate? {
+        let count = flux.count
+        let minLag = Int(frameRate * 60 / maximumBPM)
+        let maxLag = Int(frameRate * 60 / minimumBPM)
+        let reach = min(count, 4 * maxLag + 1)
+        guard minLag >= 1, maxLag < reach, (flux.max() ?? 0) > 1e-4 else { return nil }
 
-        var flux = [Float](repeating: 0, count: envelope.count)
-        for index in 1 ..< envelope.count {
-            flux[index] = max(0, envelope[index] - envelope[index - 1])
+        let centered = vDSP.add(-vDSP.mean(flux), flux)
+        let energy = vDSP.dot(centered, centered)
+        guard energy > 1e-9 else { return nil }
+        let acf = (0 ..< reach).map { vDSP.dot(centered[..<(count - $0)], centered[$0...]) / energy }
+
+        let scores = (minLag ... maxLag).map { lag -> Float in
+            var score = acf[lag]
+            if 2 * lag < reach { score += 0.5 * acf[2 * lag] }
+            if 4 * lag < reach { score += 0.25 * acf[4 * lag] }
+            let octaves = log2(frameRate * 60 / Double(lag) / 120) / 0.9
+            return score * Float(exp(-0.5 * octaves * octaves))
+        }
+        guard let best = scores.indices.max(by: { scores[$0] < scores[$1] }) else { return nil }
+
+        var lag = Double(minLag + best)
+        if best > 0, best < scores.count - 1 {
+            let (a, b, c) = (scores[best - 1], scores[best], scores[best + 1])
+            if a - 2 * b + c != 0 { lag += Double(0.5 * (a - c) / (a - 2 * b + c)) }
         }
 
-        let maxFlux = flux.max() ?? 0
-        guard maxFlux > 0.0001 else { return nil }
+        let integerLag = minLag + best
+        let strength = (acf[integerLag] + acf[min(2 * integerLag, reach - 1)]) / 2
+        // Strength 0.35 matched Apple's tempo 80% of the time on real songs, 0.49 matched 88%.
+        let confidence = Double(min(1, max(0, strength / 0.6)))
 
-        let minLag = max(1, Int((60 / maximumBPM) * envelopeSampleRate))
-        let maxLag = min(flux.count / 2, Int((60 / minimumBPM) * envelopeSampleRate))
-        guard maxLag > minLag else { return nil }
+        // The phase whose beats, one period apart, land on the most onset strength.
+        let phase = (0 ..< Int(lag.rounded(.up))).max { beatStrength(flux, phase: $0, period: lag) < beatStrength(flux, phase: $1, period: lag) } ?? 0
+        // A rise shows once a sound enters the window's trailing edge, so the beat is a window after the frame start.
+        let anchor = (Double(phase + 1) + Double(window / hop)) / frameRate
 
-        var bestLag = minLag
-        var bestScore: Float = 0
-        var scores: [Float] = []
-        scores.reserveCapacity(maxLag - minLag + 1)
-
-        for lag in minLag ... maxLag {
-            var numerator: Float = 0
-            var currentEnergy: Float = 0
-            var laggedEnergy: Float = 0
-            for index in lag ..< flux.count {
-                let current = flux[index]
-                let lagged = flux[index - lag]
-                numerator += current * lagged
-                currentEnergy += current * current
-                laggedEnergy += lagged * lagged
-            }
-            let denominator = sqrt(currentEnergy * laggedEnergy)
-            let score = denominator > 0 ? numerator / denominator : 0
-            scores.append(score)
-            if score > bestScore {
-                bestScore = score
-                bestLag = lag
-            }
-        }
-
-        guard bestScore > 0 else { return nil }
-
-        let meanScore = scores.reduce(Float(0), +) / Float(max(scores.count, 1))
-        let contrast = meanScore > 0 ? Double(bestScore / meanScore) : 0
-        let confidence = min(1, max(0, (contrast - 1.1) / 1.4))
-        let bpm = 60 * envelopeSampleRate / Double(bestLag)
-        guard bpm >= minimumBPM, bpm <= maximumBPM else { return nil }
-
-        return SmartMixTempoEstimate(
-            bpm: bpm,
-            confidence: confidence,
-            beatAnchorOffset: firstStrongOnsetOffset(
-                flux: flux,
-                envelopeSampleRate: envelopeSampleRate,
-                maxFlux: maxFlux
-            )
-        )
+        return SmartMixTempoEstimate(bpm: 60 * frameRate / lag, confidence: confidence, beatAnchorOffset: anchor)
     }
 
-    private static func firstStrongOnsetOffset(
-        flux: [Float],
-        envelopeSampleRate: Double,
-        maxFlux: Float
-    ) -> TimeInterval? {
-        let threshold = maxFlux * 0.55
-        guard let index = flux.firstIndex(where: { $0 >= threshold }) else { return nil }
-        return Double(index) / envelopeSampleRate
+    private static func beatStrength(_ flux: [Float], phase: Int, period: Double) -> Float {
+        var sum: Float = 0
+        var index = phase
+        var beat = 0.0
+        while index < flux.count {
+            sum += flux[index]
+            beat += 1
+            index = Int((Double(phase) + beat * period).rounded())
+        }
+        return sum
+    }
+
+    /// Rises in loudness across `bandCount` log-spaced frequency bands, minus a 87-frame running mean.
+    private static func onsetStrength(_ samples: [Float]) -> [Float] {
+        let frames = 1 + (samples.count - window) / hop
+        let log2n = vDSP_Length(10)
+        let half = window / 2
+        guard frames >= 64, let setup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2)) else { return [] }
+        defer { vDSP_destroy_fftsetup(setup) }
+
+        let edges = Array(Set((0 ... bandCount).map { $0 == bandCount ? half : Int(2 * pow(Double(half / 2), Double($0) / Double(bandCount))) })).sorted()
+        let hann = (0 ..< window).map { Float(0.5 - 0.5 * cos(2 * Double.pi * Double($0) / Double(window - 1))) }
+        let real = UnsafeMutablePointer<Float>.allocate(capacity: half)
+        let imag = UnsafeMutablePointer<Float>.allocate(capacity: half)
+        let magnitude = UnsafeMutablePointer<Float>.allocate(capacity: half)
+        defer { real.deallocate(); imag.deallocate(); magnitude.deallocate() }
+        var split = DSPSplitComplex(realp: real, imagp: imag)
+
+        var previous = [Float](repeating: 0, count: edges.count - 1)
+        var flux = [Float](repeating: 0, count: frames - 1)
+        for frame in 0 ..< frames {
+            let windowed = vDSP.multiply(hann, samples[frame * hop ..< frame * hop + window])
+            for index in 0 ..< half {
+                real[index] = windowed[2 * index]
+                imag[index] = windowed[2 * index + 1]
+            }
+            vDSP_fft_zrip(setup, &split, 1, log2n, FFTDirection(kFFTDirection_Forward))
+            vDSP_zvabs(&split, 1, magnitude, 1, vDSP_Length(half))
+
+            var rise: Float = 0
+            for band in 0 ..< previous.count {
+                var sum: Float = 0
+                vDSP_sve(magnitude + edges[band], 1, &sum, vDSP_Length(edges[band + 1] - edges[band]))
+                // The packed real FFT is twice numpy's rfft, hence 50 rather than 100.
+                let level = log1pf(50 * sum)
+                if frame > 0 { rise += max(0, level - previous[band]) }
+                previous[band] = level
+            }
+            if frame > 0 { flux[frame - 1] = rise }
+        }
+
+        var prefix = [Double](repeating: 0, count: flux.count + 1)
+        for index in flux.indices { prefix[index + 1] = prefix[index] + Double(flux[index]) }
+        return flux.indices.map { index in
+            let mean = (prefix[min(flux.count, index + 44)] - prefix[max(0, index - 43)]) / 87
+            return max(0, flux[index] - Float(mean))
+        }
     }
 }
 
