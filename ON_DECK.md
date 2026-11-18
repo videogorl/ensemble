@@ -362,20 +362,20 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Next step: if one appears, fetch only positions with more than one row (grouped fetch with
   a count filter) so memory follows the suspicious rows instead of the playlist.
 
-## Open: SmartMix overlap change is unverified at runtime (2026-11-17)
+## Open: SmartMix's AutoMix-style transitions are not yet judged by ear (2026-11-17)
 
-- Evidence: `SmartMixPlanner` now starts the incoming song at its first sound and sizes the overlap from the outgoing
-  song's own decay (1 to 10 s, tuned against Apple Music's plans for the same songs) instead of always skipping 10 s
-  and fading 10 s. Planner tests pass and its plans match Apple's on 92% of 420 pairs within 2 s; no transition has
-  been played or recorded with the change. Background in
-  `docs/investigations/2026-11-17-automix-reverse-engineering-plan.md`.
-- Impact: unknown until heard. The 1 s overlap is much shorter than anything SmartMix scheduled before, so a late
-  start from the prefetch check is the likely failure.
-- Next step: record cold-ending and fade-out pairs from the Mac build with `scripts/automix-lab` and compare the
-  logged plan with what played; then the phone check in `docs/reference/physical-device-backlog.md`.
-- Also unheard: the tempo estimator was replaced on the same branch (matches Apple's tempo 81% of the time at
-  SmartMix's confidence gate, up from 57%). More pairs will now pass the gate and get a speed change, so listen for
-  speed changes that sound wrong, especially 2:3 and 4:3 tempo confusions.
+- Evidence: `SmartMixPlanner` now picks one of five styles per pair (see "What SmartMix does with this" in
+  `docs/investigations/2026-11-17-automix-findings.md`). Planner tests pass; on 497 real pairs its common-case
+  overlap is within 1 s of Apple's on 93%. Runtime evidence is listed in
+  `docs/reference/physical-device-backlog.md` under "SmartMix styles".
+- Impact: unknown until heard. Likely trouble spots: a 1 s overlap started late by the prefetch check; the next
+  song entering at full level over a tail that is quiet but not silent; the beat-matched blend drifting off the
+  beat (tempo comes from a 30 s estimate, not a beat grid) or starting on the wrong beat of the bar.
+- Next step: listen to each style, then record them from the Mac build with `scripts/automix-lab` and compare
+  with Apple's recordings of the same pairs.
+- Known gaps against Apple: no reverb variants (styles 33, 44), no Pop echo or reverb styles (16, 20), no key
+  or vocal-clash check before a beat-matched blend, no bar lines, and the blend always starts the next song at
+  its first sound where Apple often enters later.
 
 ## Pre-existing, weigh later: streaming tracks have no sample-gapless or file-backed SmartMix handoff (2026-11-10)
 

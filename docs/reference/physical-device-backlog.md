@@ -1067,12 +1067,17 @@ Owed: the dragged card dims only while moving (not observed mid-drag); a reorder
 check ran before the drop-target change was added. A pin dropped on the search field types its id there. Evidence:
 `$TMPDIR/tmp.ZgjtsHljFx` (screenshots), `$TMPDIR/tmp.6CWfxnhYZR` (logs).
 
-## SmartMix overlap sizing (2026-11-17)
+## SmartMix styles (2026-11-17)
 
-Not run on any device or simulator yet; planner tests only.
+Listening checks owed on the iPhone and the Mac (SmartMix on, songs from different albums):
 
-- SmartMix on, a song with a cold ending into any song: the next song starts from its first note, overlap about 1 s.
-- SmartMix on, a song that fades out into any song: the next song starts from its first note while the fade is
-  still audible; no silence between them.
-- Skip, seek and reorder during the short overlap behave as before.
+- Cold ending into any song: the next song starts at full level from its first sound, about 1 s before the end.
+- A song that dies away into a song with no intro: the next song starts once the tail is quiet; no silence, no
+  dip in the new song's level.
+- A fade-out into a song with a soft intro of a few seconds: the intro plays under the fade; if the next song
+  enters partway through its intro it eases in over 2 s rather than cutting in.
+- Two electronic, dance, pop or hip-hop songs at nearly the same tempo: an eight-bar blend where the old song
+  loses its highs first and the new one arrives highs first, beats aligned, no audible speed jump at the end.
+- Skip, seek, pause and reorder during each overlap behave as before.
+- The time shown after a beat-matched blend matches the audio.
 

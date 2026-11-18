@@ -165,6 +165,39 @@ Read from the planner's code (Ghidra, addresses in the lab notes outside the rep
 - Smart Cross-Fade always proposes 3, 33, 4 and 44 and scores exactly one above zero; how that one is picked
   is not decoded.
 
+## What SmartMix does with this
+
+Apple's loudness curve turns out to be the plain RMS level of the mono mix in dB, one value per half second:
+computed from the Plex files of 560 shared songs it matches Apple's values with a median difference of 0.03 dB
+(correlation 0.95). Apple's thresholds therefore apply to any audio file directly, with no server data.
+
+`SmartMixPlanner` tries, in Apple's order:
+
+| SmartMix style | Apple style | Chosen when | Overlap | Next song |
+|---|---|---|---|---|
+| filter blend | 8 | both songs' first genre is electronic, dance, pop, hip-hop, R&B, country, reggae or world; both tempos estimated with confidence 0.82 or more and within 8% (directly or at half or double); both stretches average -15 dB or louder; at most 12 s of ending to leave out | 32 beats, tempo gliding from one song's to the other's | from its first sound, on a matching beat |
+| overlap, ease-in | 3, 4 | the outgoing song ends in a steady fall (6 dB below the 10 s before it, 1 dB/s or faster, audible for 2 s) and the next song steps up 6 dB within its first 10 s | the length of the fall, up to 20 s | two bars before the step (one if only one fits, else from the top); eased in over 2 s when it enters partway |
+| gapless | 0 | otherwise | from where the ending last drops to -30 dB, 1 to 10 s | at full level from its first sound (a silent opening up to 5 s is skipped) |
+| cross-fade | 1 | the outgoing file could not be analysed | 2 s | from the top |
+
+Levels, filter sweeps and the speed glide of each style follow the catalogue table above; frequencies are
+interpolated linearly in Hz, which makes Apple's two style 8 sweeps meet at a crossover falling from 20 kHz to
+200 Hz.
+
+Against Apple's plans for 497 pairs of the same recordings (`smartmix_plans4.json` in the lab data):
+
+- Apple Dead-Air Removal, 393 pairs: SmartMix agrees on 347, with the overlap within 1 s on 93% and 2 s on
+  97% (mean difference 0.46 s). The other 46 get an overlap under the fade.
+- Apple Smart Cross-Fade, 43 pairs: SmartMix agrees on 19. Apple decides from its own song sections, which
+  audio alone does not give; the local test reproduces 73% of its "fading ending" verdicts and 76% of its
+  "start section" verdicts. SmartMix never enters more than a few bars into the next song; Apple entered up
+  to 31 s in.
+- Apple beat-matched, 41 pairs: SmartMix blends 1 (same 15.4 s length as Apple's). Most of the rest fail the
+  tempo gate: the two estimates differ by more than 8%, often by a 4:3 or 3:2 ratio.
+- Apple's 2 s fallback, 20 pairs: SmartMix analyses the file itself, so it uses gapless there.
+
+Not built: the reverb variants (33, 44), the Pop styles (16, 20), a key or vocal-clash check, bar lines.
+
 ## Answers so far to the four questions
 
 - Same genre: mostly Dead-Air Removal like everything else; beat-matching appears for danceable genres.

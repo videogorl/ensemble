@@ -736,6 +736,25 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
         XCTAssertNotNil(advanced, "Queue did not advance after the outgoing track ended")
     }
 
+    /// SmartMix carries one track into the next: the overlap starts before the outgoing track ends, the
+    /// queue advances during it, and the next track keeps playing once it is over. `ENSEMBLE_SMARTMIX_TRACKS`
+    /// (comma-separated rating keys) replaces the default pair. The session log's `[SmartMix] Planned style=`
+    /// and `[AudioEngine] SmartMix started` lines name the style and timings used.
+    func testG3i_SmartMixCarriesIntoNextTrack() throws {
+        launch(smartMix: true)
+        let custom = ProcessInfo.processInfo.environment["ENSEMBLE_SMARTMIX_TRACKS"]?.split(separator: ",").map(String.init)
+        play(custom ?? [Key.mp3, Key.aac, Key.flac])
+        let p = try XCTUnwrap(wait(90, "playing") { $0.state == "playing" && $0.pos >= 2 && $0.dur > 60 })
+        transport("seek", to: p.dur - 45)
+        let mixing = try XCTUnwrap(wait(70, "overlap starts") { $0.mix }, "No SmartMix overlap started")
+        XCTAssertEqual(mixing.idx, p.idx, "The overlap should start while the outgoing track is still current")
+        let promoted = try XCTUnwrap(wait(45, "queue advances during the overlap") { $0.idx == p.idx + 1 }, "Queue did not advance")
+        log("promoted at pos \(promoted.pos) mix=\(promoted.mix)")
+        let settled = try XCTUnwrap(wait(45, "overlap ends") { !$0.mix && $0.idx == p.idx + 1 && $0.state == "playing" }, "Overlap did not end with the next track playing")
+        XCTAssertNotNil(wait(15, "next track keeps playing") { $0.state == "playing" && $0.pos >= settled.pos + 3 }, "Next track stalled after the overlap")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     /// Step 2c/2d: the Autoplay and SmartMix toggles on the queue page flip and restore.
     func testG5f_AutoplayAndSmartMixTogglesFlipAndRestore() throws {
         launch(forceModes: false)
