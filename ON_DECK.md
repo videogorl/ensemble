@@ -373,9 +373,10 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
   beat (tempo comes from a 30 s estimate, not a beat grid) or starting on the wrong beat of the bar.
 - Next step: listen to each style, then record them from the Mac build with `scripts/automix-lab` and compare
   with Apple's recordings of the same pairs.
-- Known gaps against Apple: no Pop echo or reverb styles (16, 20), no key
-  or vocal-clash check before a beat-matched blend, no bar lines, and the blend always starts the next song at
-  its first sound where Apple often enters later.
+- Known gaps against Apple: blends are rare (2 of 534 lab pairs; Apple 43 of 497) because the beat grid is
+  trusted on about 4 songs in 10 and SmartMix always enters the next song at its start; no melodicness
+  waiver; no style 12; the Pop styles and style 9 have never run on real songs; saved analysis files of
+  replaced downloads and old format versions are only removed when the system purges Caches.
 
 ## Suspected: AVAudioFile stops early on one FLAC, and 13 files report more frames than they decode (2026-11-18)
 

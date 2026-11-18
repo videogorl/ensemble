@@ -203,7 +203,7 @@ Against Apple's plans for 497 pairs of the same recordings (`smartmix_plans4.jso
   19 pairs where SmartMix and Apple both overlap, the reverb choice agrees on 14. SmartMix's reverb is in the
   song's path instead of on a send, so the dry signal drops about 5 dB as the reverb comes up.
 
-Not built: the Pop styles (16, 20), a key or vocal-clash check, bar lines.
+Built on 2026-11-18 (see "On-device analysis wired into SmartMix"): the Pop styles, key, vocals, bar lines.
 
 SmartMix's tempo estimate against Apple's for the same songs (about 320): within 2% on 67%, and on 87% when
 SmartMix's own confidence is 0.82 or more (the rest of those are at half, double or a 3:2 ratio). A plain
@@ -283,6 +283,39 @@ Analysing only 45 s at each end gives the same answers as the whole song (1,213 
 about 0.2 s per 45 s window, 45 MB peak; not measured on a phone. Misses are short vocal samples in
 electronic tracks. The sound-isolation audio unit the app already uses was no better (first 30 s: 13 of 44
 "no vocals" wrong), costs six times more and is not on the watch; a plain signal heuristic was much worse.
+
+## On-device analysis wired into SmartMix (2026-11-18)
+
+This replaces the blend row of the table in "What SmartMix does with this" and its "Not built" line.
+
+- One analysis per file: the song is decoded once to 11 kHz mono in chunks for the beat grid and keys, the
+  first 45 s after the first sound are checked for vocals, and the result (about 6.5 KB) is saved in Caches
+  under `SmartMixAnalysis/`, keyed by track, file date, size and a format version. On the Mac a four-minute
+  song costs 0.56 s (0.29 s decode, 0.03 s grid, 0.01 s key, 0.09 s vocals). The two 30 s tempo windows are
+  gone. Files over 15 minutes get no grid, keys or vocals.
+- A beat-matched blend needs: a suitable genre pair; both grids trusted (confidence 0.6 or more); tempos
+  within 8% over the beats the blend plays (directly or at half or double); the outgoing stretch at -15 dB or
+  louder; at most 12 s of ending left out; 30 s of each song untouched; and no vocal in the incoming song
+  before the blend lands (Apple's rule). Both songs start the blend on a beat, on a bar line when both grids
+  trust their bars.
+- Key never refuses a blend. Apple's traces show its "Tonalities are compatible" verdict only gates style 9:
+  over the traced candidates style 9 scored above zero on 0 of 1,058 with clashing keys, while style 8 scored
+  on 604 of them and style 12 only ever on clashes. The verdict is per pair, on main keys; the waiver is
+  "either song's main melodicness below a threshold between 0.15 and 0.30" (36 of 36 traced pairs). A
+  spectral-flatness stand-in for melodicness correlates at -0.75 but cannot pick out the few non-melodic
+  songs, so SmartMix has no waiver.
+- Styles: Pop to Pop gets `popEcho` (16; 8 beats, Apple's recipe is over by its halfway point) when the
+  outgoing song leaves on a trusted bar line, else `popReverb` (20; 16 beats). Other pairs get
+  `filterExpansion` (9) when both main keys are trusted and compatible, else `filterBlend` (8); 32 beats.
+  Each deck has an echo unit and a reverb in the song's path; where Apple fades a deck after its effects,
+  SmartMix fades the effect's wet share. The reverb is a fixed preset, not Apple's 6 s decay. Style 12 is
+  not built.
+
+On the 534 lab pairs: 461 gapless, 60 overlap, 11 ease-in, 2 filter blends. Both blends are pairs Apple also
+beat-matched with style 8, at the same lengths (14.7 s and 14.9 s). Apple beat-matched 43 of the 497 pairs on
+the same master; the rest fail SmartMix's gates mainly on grid trust (29), an incoming vocal (Apple enters
+later in the song, which SmartMix cannot) and genre. No pair in the set produces a Pop style or style 9, so
+those have only been exercised by unit tests.
 
 ## Answers so far to the four questions
 

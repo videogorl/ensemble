@@ -1128,3 +1128,15 @@ Pop styles (echo, reverb) with a new echo unit on each deck. Checked only by uni
   the next song change. Same for `style=popReverb`: the old song is filtered away into reverb with no tail left
   over. The offline harness found no such pair in the 534 it plans (see the change's report), so a pair may have
   to be built from songs whose grids, keys and openings pass.
+
+Added 2026-11-18 (commit after f18da4ac; the build is installed on the iPhone 16 Pro but the phone was locked):
+
+- Blend from the saved analysis: 8996 then 8966 (seek 170) should log `style=filterBlend`, a 14.9 s overlap
+  with the outgoing song leaving at 195.0 s, and carry on in the next song. Play it a second time after
+  relaunching: the plan should appear at once (analysis read from the saved file).
+- Time from `[prefetch] Upcoming` to `[SmartMix] Planned` for a song not analysed before: this is the
+  analysis cost on the phone (0.56 s per song on the Mac).
+- 13445 then 6163 still plans `style=overlap reverb=true`; 7278 then 7631 still plans gapless.
+- By ear: the blend's beats stay together through the overlap. The Pop styles (echo, reverb) and the
+  harmonic blend need a Pop-to-Pop pair and a pair in matching keys that pass the gates; none is known yet,
+  watch the log for `style=popEcho`, `popReverb` or `filterExpansion` in normal listening.
