@@ -67,8 +67,11 @@ planned. This compares plan numbers, not sound.
 
 - The blend starts on a bar line of the outgoing song (15 of 18) and usually of the incoming one (12 of 18).
 - Length is a round number of bars: about 4 for Pop, 8 or 16 for Filtered Cross-Fade.
-- Both songs change speed in opposite directions to meet in the middle. Up to 7% on Filtered Cross-Fade and
-  13% on one Pop pair.
+- The shared tempo glides from the outgoing song's to the incoming one's: the outgoing song goes from its own
+  speed to the full ratio, the incoming one from the inverse ratio to its own speed. The logged figures are
+  averages over the blend, so half the full change: averages up to 7% on Filtered Cross-Fade (a full change of
+  about 14%), and 13% on one Pop echo pair, where only the outgoing song changes. Checked on 23 plans: the
+  incoming average matches the glide's prediction to 0.003. SmartMix's glide is the same.
 - Each plan has a pivot time between start and end. On the one recorded pair the bass of the two songs swapped
   at the pivot while the outgoing highs carried on to the end.
 - In about half of these the incoming song enters after its first strong vocal has already begun.
@@ -353,11 +356,24 @@ to 4; the two added pairs are ones Apple does not beat-match (see the device bac
 - On the 534 lab pairs: blends go from 4 to 20 (gapless 445, overlap 58, ease-in 11). Five are pairs Apple also
   beat-matches; of the rest Apple plays 10 as Dead-Air Removal, 2 as Smart Cross-Fade, 1 as the fallback and 1 as
   Beat-Matched Pop (one is a different master). Speed changes now reach 0.77 and 1.21; before, 0.92 to 1.08.
-  None of the larger ones has been heard. Apple's own beat-matched plans were seen changing speed by up to 7%
-  (13% on one Pop pair), each song meeting the other half way.
+  None of the larger ones has been heard. Apple's own beat-matched plans were seen with a full change of up to
+  about 14% (logged as a 7% average).
 - A silent tail longer than the gapless overlap is left out: the next song starts where the quiet ending
   begins and the silence after it is not played. 44 of the 534 pairs start the next song earlier, by 1 to 18 s.
   `trailingSilence` now also uses the 45 s loudness curve (below -55 dB), so tails over 15 s are seen.
 - Saved analyses not read or written for 90 days are deleted at launch; reading one marks it as used.
 - iPhone 16 Pro, from Felicity's session logs: 3 to 5 s from `[prefetch] Upcoming` to `[SmartMix] Planned` for a
   song not analysed before (iPhone SE: 8 to 12 s).
+
+## The song's opening picks the blend style; analysis cost by stage (2026-11-18)
+
+- Genre is no longer read at all. The planner takes the longest blend that lands before the incoming song
+  sings: the 32-beat filter blend (harmonic when the keys agree), else the 16-beat Pop reverb, else the 8-beat
+  Pop echo. On the 534 lab pairs: 20 filter blends, 11 Pop reverb, 8 Pop echo (39 blends; gapless 428, overlap
+  57, ease-in 10). Of the 19 Pop-style plans Apple beat-matches 3 and plays 14 as Dead-Air Removal. Tempo pairs
+  such as 185 into 72 BPM pass through the half-or-double rule and have not been heard.
+- Each analysis logs its stages. iPhone SE, debug build, six songs: beats 4.1 to 10.5 s of 6.3 to 16.8 s in
+  total (about 70%); decode 0.6 to 2.0 s, key 0.7 to 1.6 s, vocals 0.4 to 0.8 s, edges 0.3 to 2.0 s. The beat
+  stage is slow only because debug builds are not optimised: on the Mac the same song takes 3.1 s in the beat
+  stage unoptimised and 0.04 s optimised (whole analysis 4.9 s against 0.6 s). A release build on the phones
+  has not been timed.

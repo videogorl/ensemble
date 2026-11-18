@@ -1188,3 +1188,12 @@ Build 202611181356.5439 (limits lifted, long silent tails, saved-analysis clean-
 - A song with a long silent ending: the next song starts as the last sound dies, with no cut-off of anything audible.
 - Ordinary playback after the reverb and echo units went in: Felicity reported the effects "sounding GREAT" on
   the 16 Pro on 2026-11-18.
+
+iPhone SE run on 2026-11-18 of the build where the song's opening picks the style (log
+`$TMPDIR/smartmix-16pro/se-stages-run.log`). Log evidence only.
+
+- 6989 then 8731 (Gorillaz "Empire Ants" into Valice "Julie, Pt. II"), seek 258: `style=popEcho overlap=5.1s
+  outgoingStart=272.70s outgoingEndRate=0.889`; started, promoted, handed off at 5.6 s. First run of the echo
+  unit on a device. Apple plays this pair as its Pop reverb style.
+- 14516 then 8914 plans `popReverb`, 8.2 s (Apple: Pop reverb, 8.3 s). 8996 then 8966 still plans `filterBlend`.
+- Owed by ear: the echo and the Pop reverb transitions; a release-build timing of the analysis on a phone.

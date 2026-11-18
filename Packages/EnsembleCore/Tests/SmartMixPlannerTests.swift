@@ -73,29 +73,30 @@ final class SmartMixPlannerTests: XCTestCase {
                 keys: SmartMixKeys(opening: opening, main: opening, ending: opening), vocalFreeUntil: vocalFreeUntil
             )
         }
-        // outgoing, incoming, genres -> style (a non-blend falls through to gapless)
-        let cases: [(SmartMixAnalysis, SmartMixAnalysis, SmartMixBlendStyles, SmartMixStyle)] = [
-            (outgoing(), incoming(), .filter, .filterBlend),
-            (outgoing(), incoming(), .none, .gapless),
-            (outgoing(), incoming(), .pop, .popEcho),                                   // leaves on a bar line
-            (outgoing(bars: 0.2), incoming(), .pop, .popReverb),                        // outgoing bar lines not trusted
-            (outgoing(), incoming(vocalFreeUntil: nil), .filter, .filterBlend),            // unknown vocals do not block
-            (outgoing(), incoming(vocalFreeUntil: 12), .filter, .gapless),        // singing before the blend lands
-            (outgoing(key: trustedC), incoming(), .filter, .filterExpansion),      // both keys trusted and a fifth apart
-            (outgoing(key: trustedC), incoming(opening: fSharpMajor), .filter, .filterBlend),  // a clash never blocks
-            (outgoing(key: nil), incoming(), .filter, .filterBlend),               // key unknown
-            (outgoing(confidence: 0.55), incoming(), .filter, .gapless),           // grid not trusted
-            (outgoing(), incoming(confidence: 0.55), .pop, .gapless),
-            (outgoing(), incoming(spacing: 60 / 170.0), .filter, .gapless),        // tempos too far apart
-            (outgoing(quiet: 20), incoming(), .filter, .gapless),                  // too much ending to drop
+        // outgoing, incoming, blends allowed -> style (a non-blend falls through to gapless)
+        let cases: [(SmartMixAnalysis, SmartMixAnalysis, Bool, SmartMixStyle)] = [
+            (outgoing(), incoming(), true, .filterBlend),
+            (outgoing(), incoming(), false, .gapless),                                  // device saving power
+            (outgoing(), incoming(vocalFreeUntil: nil), true, .filterBlend),            // unknown vocals do not block
+            // The incoming song enters at 1.18 s; 32, 16 and 8 beats land at 16.8, 9.0 and 5.1 s.
+            (outgoing(), incoming(vocalFreeUntil: 12), true, .popReverb),               // singing before 32 beats land
+            (outgoing(), incoming(vocalFreeUntil: 6), true, .popEcho),                  // and before 16
+            (outgoing(), incoming(vocalFreeUntil: 3), true, .gapless),                  // and before 8
+            (outgoing(key: trustedC), incoming(), true, .filterExpansion),              // both keys trusted and a fifth apart
+            (outgoing(key: trustedC), incoming(opening: fSharpMajor), true, .filterBlend),  // a clash never blocks
+            (outgoing(key: nil), incoming(), true, .filterBlend),                       // key unknown
+            (outgoing(confidence: 0.55), incoming(), true, .gapless),                   // grid not trusted
+            (outgoing(), incoming(confidence: 0.55), true, .gapless),
+            (outgoing(), incoming(spacing: 60 / 170.0), true, .gapless),                // tempos too far apart
+            (outgoing(quiet: 20), incoming(), true, .gapless),                          // too much ending to drop
         ]
-        for (index, (outgoingAnalysis, incomingAnalysis, genres, style)) in cases.enumerated() {
+        for (index, (outgoingAnalysis, incomingAnalysis, allowed, style)) in cases.enumerated() {
             let plan = try XCTUnwrap(SmartMixPlanner.plan(
                 outgoingDuration: 180,
                 incomingDuration: 200,
                 outgoingAnalysis: outgoingAnalysis,
                 incomingAnalysis: incomingAnalysis,
-                blendStyles: genres
+                allowsBeatBlend: allowed
             ))
             XCTAssertEqual(plan.style, style, "case \(index)")
             guard style.isBeatMatched else { continue }
@@ -109,7 +110,7 @@ final class SmartMixPlannerTests: XCTestCase {
             let onBars = outgoingGrid.hasTrustedBars && incomingGrid.hasTrustedBars
             let outgoingIndex = try XCTUnwrap(outgoingGrid.beatTimes.firstIndex { abs($0 - plan.outgoingStartTime) < 1e-9 }, "case \(index)")
             let incomingIndex = try XCTUnwrap(incomingGrid.beatTimes.firstIndex { abs($0 - plan.incomingStartTime) < 1e-9 }, "case \(index)")
-            XCTAssertEqual(outgoingGrid.isDownbeat(outgoingIndex), onBars || style == .popEcho, "case \(index)")
+            XCTAssertEqual(outgoingGrid.isDownbeat(outgoingIndex), onBars, "case \(index)")
             XCTAssertEqual(incomingGrid.isDownbeat(incomingIndex), onBars, "case \(index)")
             XCTAssertGreaterThanOrEqual(plan.incomingStartTime, 0.5, "case \(index)")
             let outgoingEnd = plan.outgoingStartTime + plan.transitionDuration * (1 + plan.outgoingEndRate) / 2
@@ -134,7 +135,7 @@ final class SmartMixPlannerTests: XCTestCase {
                 beatGrid: grid(spacing: 60 / 61.5, start: 0.7, end: 200, confidence: 0.8, barConfidence: 0),
                 keys: SmartMixKeys(opening: key(0), main: key(0), ending: key(0))
             ),
-            blendStyles: .filter
+            allowsBeatBlend: true
         ))
         let duration = 32 * 60 / 121.5
         XCTAssertEqual(plan.style, .filterExpansion)
@@ -290,20 +291,6 @@ final class SmartMixPlannerTests: XCTestCase {
         // A soft intro that steps up 10 dB at 6 s; one that lasts 12 s is left alone.
         XCTAssertEqual(SmartMixLoudness.bodyStart(curve { $0 < 6 ? -22 : -12 }), 12)
         XCTAssertNil(SmartMixLoudness.bodyStart(curve { $0 < 12 ? -22 : -12 }))
-    }
-
-    func testGenreOnlyPicksThePopStyles() {
-        let cases: [([String], [String], SmartMixBlendStyles)] = [
-            (["Electronic", "Rock"], ["Synth-pop"], .filter),
-            (["Hip-Hop/Rap"], ["R&B"], .filter),
-            (["Pop"], ["K-POP"], .pop),
-            (["Indie Pop"], ["Pop"], .filter),
-            (["Rock", "Electronic"], ["Pop"], .filter),
-            (["Pop"], [], .filter),
-        ]
-        for (outgoing, incoming, match) in cases {
-            XCTAssertEqual(SmartMixPlanner.blendStyles(outgoingGenres: outgoing, incomingGenres: incoming), match, "\(outgoing) \(incoming)")
-        }
     }
 
     func testSavedAnalysisLoadsBackOnlyForTheSameVersion() throws {

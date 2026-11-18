@@ -228,15 +228,6 @@ public struct SmartMixPlan: Equatable, Sendable {
     }
 }
 
-/// Which beat-matched styles a song change may use.
-public enum SmartMixBlendStyles: Equatable, Sendable {
-    /// None: the device is saving power or running hot.
-    case none
-    case filter
-    /// Both songs are Pop: Apple's Pop styles instead of the filter blend.
-    case pop
-}
-
 public enum SmartMixPlanner {
     /// Bounds on the overlap of each style, as Apple Music's AutoMix plans them for the same songs.
     public static let minimumGaplessDuration: TimeInterval = 1
@@ -254,7 +245,7 @@ public enum SmartMixPlanner {
     /// Apple's limit: tempos within 3:4 to 4:3 of each other, directly or at half or double.
     public static let blendRateRange: ClosedRange<Double> = 0.75 ... 1 / 0.75
     /// Length of each beat-matched style in beats. Apple's Pop styles are about four bars; its style 16 is over
-    /// by half way, so `popEcho` plans only that half.
+    /// by half way, so `popEcho` plans only that half. The longest that lands before the incoming song sings is used.
     public static let blendBeats: Double = 32
     public static let popReverbBeats: Double = 16
     public static let popEchoBeats: Double = 8
@@ -265,7 +256,7 @@ public enum SmartMixPlanner {
         incomingDuration: TimeInterval,
         outgoingAnalysis: SmartMixAnalysis?,
         incomingAnalysis: SmartMixAnalysis?,
-        blendStyles: SmartMixBlendStyles = .none
+        allowsBeatBlend: Bool = false
     ) -> SmartMixPlan? {
         guard outgoingDuration.isFinite, incomingDuration.isFinite else { return nil }
         guard outgoingDuration >= minimumTrackDuration, incomingDuration >= minimumTrackDuration else { return nil }
@@ -298,8 +289,8 @@ public enum SmartMixPlanner {
         let silence = incomingAnalysis?.leadingSilence ?? 0
         let audibleStart = silence <= maximumSkippedSilence ? silence : 0
 
-        if blendStyles != .none, let incoming = incomingAnalysis,
-           let blend = beatBlend(styles: blendStyles, outgoingDuration: outgoingDuration, incomingDuration: incomingDuration, outgoing: outgoing, incoming: incoming, incomingStart: audibleStart) {
+        if allowsBeatBlend, let incoming = incomingAnalysis,
+           let blend = beatBlend(outgoingDuration: outgoingDuration, incomingDuration: incomingDuration, outgoing: outgoing, incoming: incoming, incomingStart: audibleStart) {
             return plan(blend.style, duration: blend.duration, outgoingStart: blend.outgoingStart, incomingStart: blend.incomingStart, outgoingEndRate: blend.outgoingEndRate)
         }
 
@@ -332,15 +323,6 @@ public enum SmartMixPlanner {
         currentTime + tolerance >= plan.outgoingStartTime
     }
 
-    /// Genre does not decide whether two songs blend: a Plex library's genres are too coarse ("Pop/Rock" on most
-    /// songs) to stand in for Apple's genre list, so the audio decides. Genre only picks the Pop styles, which
-    /// need both first genres to be plain Pop (or K-Pop), as in Apple's logs.
-    public static func blendStyles(outgoingGenres outgoing: [String], incomingGenres incoming: [String]) -> SmartMixBlendStyles {
-        let pop: Set = ["pop", "k-pop", "kpop"]
-        let mains = [outgoing, incoming].map { $0.first?.lowercased().trimmingCharacters(in: .whitespaces) ?? "" }
-        return mains.allSatisfy(pop.contains) ? .pop : .filter
-    }
-
     /// Whether the two songs' keys are known to go together. Apple never refuses a blend over key; it only keeps
     /// its harmonic style (9) for compatible songs, judged on each song's main key. Both keys must be trusted.
     public static func keysCompatible(outgoing: SmartMixAnalysis, incoming: SmartMixAnalysis) -> Bool {
@@ -371,30 +353,25 @@ public enum SmartMixPlanner {
         let outgoingStart: TimeInterval
         let incomingStart: TimeInterval
         let outgoingEndRate: Double
-        let startsOnBar: Bool
     }
 
-    /// The filter blend for most danceable genres; between two Pop songs, Apple's echo when the outgoing song
-    /// can leave on a bar line, else its reverb (Apple draws between the two).
+    /// The longest blend that lands before the incoming song starts singing: the 32-beat filter blend, else
+    /// Apple's 16-beat Pop reverb, else its 8-beat Pop echo. Apple picks the Pop styles by genre; a Plex
+    /// library's genres ("Pop/Rock" on most songs) cannot, so the song's own opening decides.
     private static func beatBlend(
-        styles: SmartMixBlendStyles,
         outgoingDuration: TimeInterval,
         incomingDuration: TimeInterval,
         outgoing: SmartMixAnalysis,
         incoming: SmartMixAnalysis,
         incomingStart: TimeInterval
     ) -> Blend? {
-        func blend(_ style: SmartMixStyle, beats: Double) -> Blend? {
-            beatBlend(style, beats: Int(beats), outgoingDuration: outgoingDuration, incomingDuration: incomingDuration, outgoing: outgoing, incoming: incoming, incomingStart: incomingStart)
+        let filter: SmartMixStyle = keysCompatible(outgoing: outgoing, incoming: incoming) ? .filterExpansion : .filterBlend
+        for (style, beats) in [(filter, blendBeats), (.popReverb, popReverbBeats), (.popEcho, popEchoBeats)] {
+            if let blend = beatBlend(style, beats: Int(beats), outgoingDuration: outgoingDuration, incomingDuration: incomingDuration, outgoing: outgoing, incoming: incoming, incomingStart: incomingStart) {
+                return blend
+            }
         }
-        guard styles == .pop else {
-            return blend(keysCompatible(outgoing: outgoing, incoming: incoming) ? .filterExpansion : .filterBlend, beats: blendBeats)
-        }
-        guard let reverb = blend(.popReverb, beats: popReverbBeats) else { return nil }
-        if reverb.startsOnBar, let echo = blend(.popEcho, beats: popEchoBeats), echo.startsOnBar {
-            return echo
-        }
-        return reverb
+        return nil
     }
 
     /// `beats` beats in which the tempo glides from the outgoing song's to the incoming one's. The outgoing song
@@ -454,8 +431,7 @@ public enum SmartMixPlanner {
             duration: duration,
             outgoingStart: outgoingBeats[first],
             incomingStart: incomingBeats[entry],
-            outgoingEndRate: incomingBPM / outgoingBPM,
-            startsOnBar: outgoingGrid.hasTrustedBars && outgoingGrid.isDownbeat(first)
+            outgoingEndRate: incomingBPM / outgoingBPM
         )
     }
 }
@@ -787,6 +763,13 @@ public final class SmartMixAnalysisService {
 
         let sampleRate = file.processingFormat.sampleRate
         guard sampleRate > 0, file.length > 0 else { return .unavailable }
+        // Seconds each stage took, for the one log line below.
+        var stages: [String] = []
+        var mark = Date()
+        func stage(_ name: String) {
+            stages.append("\(name)=\(String(format: "%.2f", Date().timeIntervalSince(mark)))s")
+            mark = Date()
+        }
 
         let duration = TimeInterval(file.length) / sampleRate
         let windowDuration = min(15, duration / 2)
@@ -818,8 +801,24 @@ public final class SmartMixAnalysisService {
         let quietEnding = SmartMixLoudness.quietEnding(tail)
         // The sample scan above stops at 15 s; the loudness curve sees a longer silent tail.
         let silentEnding = TimeInterval(tail.count - 1 - (tail.lastIndex { $0 > SmartMixLoudness.inaudibleLevel } ?? -1)) * step
+        stage("edges")
 
-        let (beatGrid, keys) = duration <= maximumBeatAnalysisDuration ? beatGridAndKeys(file: file) : (nil, nil)
+        // Beats and key take the same reduced signal, which is released before the vocal check runs.
+        var beatGrid: SmartMixBeatGrid?
+        var keys: SmartMixKeys?
+        var vocalFree: TimeInterval?
+        if duration <= maximumBeatAnalysisDuration {
+            if let reduced = reducedMono(file: file) {
+                stage("decode")
+                beatGrid = SmartMixBeatGrid.analyze(reducedSamples: reduced.samples, rate: reduced.rate)
+                stage("beats")
+                keys = SmartMixKeys.analyze(reducedSamples: reduced.samples, rate: reduced.rate)
+                stage("key")
+            }
+            vocalFree = vocalFreeUntil(fileURL: fileURL, firstSound: leading)
+            stage("vocals")
+        }
+        EnsembleLogger.debug("[SmartMix] Analysed \(String(format: "%.0f", duration))s of audio: \(stages.joined(separator: " "))")
         return SmartMixAnalysis(
             leadingSilence: leading,
             trailingSilence: max(trailing, silentEnding),
@@ -832,16 +831,7 @@ public final class SmartMixAnalysisService {
             bodyStartTime: SmartMixLoudness.bodyStart(head).map { TimeInterval($0) * step },
             beatGrid: beatGrid,
             keys: keys,
-            vocalFreeUntil: duration <= maximumBeatAnalysisDuration ? vocalFreeUntil(fileURL: fileURL, firstSound: leading) : nil
-        )
-    }
-
-    /// Both analysers take the same reduced signal, which is released before the vocal check runs.
-    private static func beatGridAndKeys(file: AVAudioFile) -> (SmartMixBeatGrid?, SmartMixKeys?) {
-        guard let reduced = reducedMono(file: file) else { return (nil, nil) }
-        return (
-            SmartMixBeatGrid.analyze(reducedSamples: reduced.samples, rate: reduced.rate),
-            SmartMixKeys.analyze(reducedSamples: reduced.samples, rate: reduced.rate)
+            vocalFreeUntil: vocalFree
         )
     }
 

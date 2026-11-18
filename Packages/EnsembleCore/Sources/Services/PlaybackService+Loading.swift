@@ -1063,9 +1063,7 @@ extension PlaybackService {
                     incomingDuration: smartMixContext.incomingDuration,
                     outgoingAnalysis: outgoingAnalysis,
                     incomingAnalysis: incomingAnalysis,
-                    blendStyles: tempoGate.allowed
-                        ? SmartMixPlanner.blendStyles(outgoingGenres: currentTrack.genres, incomingGenres: track.genres)
-                        : .none
+                    allowsBeatBlend: tempoGate.allowed
                 ) {
                     let keys = SmartMixPlanner.keysCompatible(outgoing: outgoingAnalysis, incoming: incomingAnalysis)
                     EnsembleLogger.debug(
@@ -1081,7 +1079,6 @@ extension PlaybackService {
                         + " incomingGrid=\(String(format: "%.2f", incomingAnalysis.beatGrid?.confidence ?? 0))"
                         + " keysCompatible=\(keys)"
                         + " incomingVocalFreeUntil=\(incomingAnalysis.vocalFreeUntil.map { String(format: "%.1fs", $0) } ?? "unknown")"
-                        + " genres=\(currentTrack.genres.first ?? "none")>\(track.genres.first ?? "none")"
                         + " tempoGate=\(tempoGate.reason ?? "open")"
                     )
                     guard SmartMixPlanner.shouldStartTransition(
