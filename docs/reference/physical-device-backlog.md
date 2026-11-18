@@ -1140,3 +1140,16 @@ Added 2026-11-18 (commit after f18da4ac; the build is installed on the iPhone 16
 - By ear: the blend's beats stay together through the overlap. The Pop styles (echo, reverb) and the
   harmonic blend need a Pop-to-Pop pair and a pair in matching keys that pass the gates; none is known yet,
   watch the log for `style=popEcho`, `popReverb` or `filterExpansion` in normal listening.
+
+Run on the iPhone SE (2nd generation, "Guest's iPhone", no passcode) on 2026-11-18, build of 2f180e4b, logs
+`$TMPDIR/smartmix-16pro/se-first-run.log` and `se-run.log`. Log evidence only; nothing was heard.
+
+| Check | Result |
+|---|---|
+| 8996 then 8966, seek 170 | Planned and played, but as `style=popEcho` with a 3.7 s overlap from 206.26 s, not the `filterBlend` at 14.9 s the offline harness planned. Started, promoted and handed off (position 3.8 s). The library's genres for both songs must contain "pop"; the harness used other genre text. Open: decide whether "contains pop" is too loose (Apple used its plain filter blend here) |
+| Same pair after relaunch | Plan logged 7 ms after `[prefetch] Upcoming` (saved analysis read); 64 ms for the reversed pair later |
+| Analysis time, two songs not analysed before | 24.4 s during launch (8996+8966); 15.4 s (13445+6163) and 21.1 s (7278+7631, one song six minutes) after startup settled. About 8 to 12 s per song on this phone against 0.56 s on the Mac. Not yet split between decode, grid, key and vocals |
+| 13445 then 6163 | `style=overlap reverb=true overlap=9.0s`, as on the 16 Pro |
+| 7278 then 7631 | `style=gapless` |
+
+Still owed: the same timing on the iPhone 16 Pro, the locked-phone check, and every by-ear check above.
