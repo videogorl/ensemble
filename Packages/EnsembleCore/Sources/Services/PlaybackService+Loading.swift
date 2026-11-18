@@ -39,52 +39,6 @@ extension PlaybackService {
         }
     }
 
-    nonisolated static func smartMixTempoFallbackReason(
-        plan: SmartMixPlan,
-        outgoingAnalysis: SmartMixAnalysis,
-        incomingAnalysis: SmartMixAnalysis,
-        tempoGateReason: String?
-    ) -> String? {
-        guard !plan.tempoMatched else { return nil }
-        if let tempoGateReason {
-            return tempoGateReason
-        }
-        if plan.transitionDuration < SmartMixPlanner.minimumTempoTransitionDuration {
-            return "transition-too-short"
-        }
-        guard let outgoingBPM = outgoingAnalysis.outroTempo.estimatedBPM,
-              let incomingBPM = incomingAnalysis.introTempo.estimatedBPM
-        else {
-            return "tempo-unavailable"
-        }
-        if outgoingAnalysis.outroTempo.confidence < SmartMixPlanner.minimumTempoConfidence
-            || incomingAnalysis.introTempo.confidence < SmartMixPlanner.minimumTempoConfidence {
-            return "low-confidence"
-        }
-        guard let normalizedIncomingBPM = SmartMixPlanner.normalizedIncomingTempo(
-            outgoingBPM: outgoingBPM,
-            incomingBPM: incomingBPM
-        ) else {
-            return "tempo-normalization-failed"
-        }
-        let strongConfidence = outgoingAnalysis.outroTempo.confidence >= SmartMixPlanner.minimumStrongTempoConfidence
-            && incomingAnalysis.introTempo.confidence >= SmartMixPlanner.minimumStrongTempoConfidence
-        if strongConfidence {
-            let outgoingRate = normalizedIncomingBPM / outgoingBPM
-            if outgoingRate < SmartMixPlanner.minimumAssertiveTempoRate
-                || outgoingRate > SmartMixPlanner.maximumAssertiveTempoRate {
-                return "outgoing-rate-out-of-range-\(String(format: "%.3f", outgoingRate))"
-            }
-        } else {
-            let incomingRate = outgoingBPM / normalizedIncomingBPM
-            if incomingRate < SmartMixPlanner.minimumSubtleTempoRate
-                || incomingRate > SmartMixPlanner.maximumSubtleTempoRate {
-                return "incoming-rate-out-of-range-\(String(format: "%.3f", incomingRate))"
-            }
-        }
-        return "beat-alignment-unavailable"
-    }
-
     /// Add or update an item in the cache with LRU tracking.
     /// Must run on MainActor to prevent data races with KVO observers and prefetch tasks.
     /// Cache a resolved file URL with LRU eviction.
@@ -1109,23 +1063,18 @@ extension PlaybackService {
                     incomingDuration: smartMixContext.incomingDuration,
                     outgoingAnalysis: outgoingAnalysis,
                     incomingAnalysis: incomingAnalysis,
-                    tempoMatchingAllowed: tempoGate.allowed
+                    beatBlendAllowed: tempoGate.allowed
+                        && SmartMixPlanner.genresSuitBeatBlend(outgoing: currentTrack.genres, incoming: track.genres)
                 ) {
-                    let tempoFallbackReason = Self.smartMixTempoFallbackReason(
-                        plan: plan,
-                        outgoingAnalysis: outgoingAnalysis,
-                        incomingAnalysis: incomingAnalysis,
-                        tempoGateReason: tempoGate.reason
-                    )
                     EnsembleLogger.debug(
-                        "[SmartMix] Tempo decision matched=\(plan.tempoMatched)"
+                        "[SmartMix] Planned style=\(plan.style.rawValue)"
+                        + " overlap=\(String(format: "%.1f", plan.transitionDuration))s"
+                        + " incomingStart=\(String(format: "%.1f", plan.incomingStartTime))s"
                         + " outgoingBPM=\(String(format: "%.1f", outgoingAnalysis.outroTempo.estimatedBPM ?? 0))"
                         + " outgoingConfidence=\(String(format: "%.2f", outgoingAnalysis.outroTempo.confidence))"
                         + " incomingBPM=\(String(format: "%.1f", incomingAnalysis.introTempo.estimatedBPM ?? 0))"
                         + " incomingConfidence=\(String(format: "%.2f", incomingAnalysis.introTempo.confidence))"
-                        + " rate=\(String(format: "%.3f", plan.incomingPlaybackRate))"
-                        + " beatOffset=\(String(format: "%.3f", plan.incomingBeatOffset))"
-                        + " fallback=\(tempoFallbackReason ?? "none")"
+                        + " tempoGate=\(tempoGate.reason ?? "open")"
                     )
                     guard SmartMixPlanner.shouldStartTransition(
                         currentTime: smartMixContext.currentTime,

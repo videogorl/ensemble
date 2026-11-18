@@ -14,8 +14,8 @@ import QuartzCore
 ///
 /// Audio graph (isolation disabled):
 /// ```
-/// primary deck: file/stream -> primarySourceMixer -> primaryTimePitch -> outgoingHighPassEQ -> deckMixer -> mainMixer -> output
-/// SmartMix deck: smartMixPlayerNode -> incomingTimePitch -> smartMixHighPassEQ -> deckMixer -> mainMixer -> output
+/// primary deck: file/stream -> primarySourceMixer -> primaryTimePitch -> primaryDeckEQ -> deckMixer -> mainMixer -> output
+/// SmartMix deck: smartMixPlayerNode -> incomingTimePitch -> smartMixDeckEQ -> deckMixer -> mainMixer -> output
 /// ```
 ///
 /// Audio graph (isolation enabled):
@@ -41,8 +41,9 @@ public final class AudioPlaybackEngine {
     private var reportedStreamingStall = false
     private var lastStreamingDiagnosticAt: TimeInterval = 0
     private var lastReportedMissingFrames: Int64 = 0
-    private let outgoingHighPassEQ = AVAudioUnitEQ(numberOfBands: 1)
-    private let smartMixHighPassEQ = AVAudioUnitEQ(numberOfBands: 1)
+    /// Band 0 is a high-pass and band 1 a low-pass; both stay bypassed outside a filtered SmartMix blend.
+    private let primaryDeckEQ = AVAudioUnitEQ(numberOfBands: 2)
+    private let smartMixDeckEQ = AVAudioUnitEQ(numberOfBands: 2)
     private let primaryTimePitch = AVAudioUnitTimePitch()
     private let incomingTimePitch = AVAudioUnitTimePitch()
     private let deckMixer = AVAudioMixerNode()
@@ -152,19 +153,10 @@ public final class AudioPlaybackEngine {
         let contentFrameCount: AVAudioFrameCount
         let sampleRate: Double
         let duration: TimeInterval
-        let incomingStartTime: TimeInterval
-        let transitionDuration: TimeInterval
-        let skipThreshold: TimeInterval
-        let incomingPlaybackRate: Double
-        let outgoingPlaybackRate: Double
-        let highPassSweep: SmartMixHighPassSweep?
+        let plan: SmartMixPlan
         let generation: UInt64
         let startedAtWallTime: TimeInterval
         var promoted = false
-
-        var midpoint: TimeInterval {
-            transitionDuration / 2
-        }
     }
 
     private var smartMixTransition: SmartMixEngineTransition?
@@ -263,8 +255,8 @@ public final class AudioPlaybackEngine {
         engine.attach(playerNode)
         engine.attach(smartMixPlayerNode)
         engine.attach(primarySourceMixer)
-        engine.attach(outgoingHighPassEQ)
-        engine.attach(smartMixHighPassEQ)
+        engine.attach(primaryDeckEQ)
+        engine.attach(smartMixDeckEQ)
         engine.attach(primaryTimePitch)
         engine.attach(incomingTimePitch)
         engine.attach(deckMixer)
@@ -285,11 +277,11 @@ public final class AudioPlaybackEngine {
         graphProcessingFormat = processingFormat
         engine.connect(playerNode, to: primarySourceMixer, format: processingFormat)
         engine.connect(primarySourceMixer, to: primaryTimePitch, format: processingFormat)
-        engine.connect(primaryTimePitch, to: outgoingHighPassEQ, format: processingFormat)
-        engine.connect(outgoingHighPassEQ, to: deckMixer, format: processingFormat)
+        engine.connect(primaryTimePitch, to: primaryDeckEQ, format: processingFormat)
+        engine.connect(primaryDeckEQ, to: deckMixer, format: processingFormat)
         engine.connect(smartMixPlayerNode, to: incomingTimePitch, format: processingFormat)
-        engine.connect(incomingTimePitch, to: smartMixHighPassEQ, format: processingFormat)
-        engine.connect(smartMixHighPassEQ, to: deckMixer, format: processingFormat)
+        engine.connect(incomingTimePitch, to: smartMixDeckEQ, format: processingFormat)
+        engine.connect(smartMixDeckEQ, to: deckMixer, format: processingFormat)
         engine.connect(deckMixer, to: mainMixer, format: processingFormat)
         recordDownstreamGraphMutation(reason: "initialSetup")
 
@@ -322,17 +314,27 @@ public final class AudioPlaybackEngine {
     }
 
     private func configureSmartMixEffectDefaults() {
-        resetHighPass(for: .primary)
-        resetHighPass(for: .smartMix)
+        resetFilters(for: .primary)
+        resetFilters(for: .smartMix)
         resetTimePitch(for: .primary)
         resetTimePitch(for: .smartMix)
     }
 
-    private func resetHighPass(for deck: PlaybackDeck) {
-        if let band = highPassEQ(for: deck).bands.first {
-            band.filterType = .highPass
-            band.frequency = SmartMixHighPassSweep.subtle.startFrequency
+    private func resetFilters(for deck: PlaybackDeck) {
+        for (band, type) in zip(deckEQ(for: deck).bands, [AVAudioUnitEQFilterType.highPass, .lowPass]) {
+            band.filterType = type
             band.bypass = true
+        }
+    }
+
+    /// Applies one deck's share of a SmartMix overlap: level, speed and filter cutoffs.
+    private func apply(_ state: SmartMixDeckState, to deck: PlaybackDeck) {
+        setVolume(state.gain, for: deck)
+        timePitchNode(for: deck).rate = state.rate
+        let highestCutoff = Float(max(20, sampleRate / 2 - 1))
+        for (band, cutoff) in zip(deckEQ(for: deck).bands, [state.highPass, state.lowPass]) {
+            band.bypass = cutoff == nil
+            if let cutoff { band.frequency = min(max(20, cutoff), highestCutoff) }
         }
     }
 
@@ -390,12 +392,12 @@ public final class AudioPlaybackEngine {
         }
     }
 
-    private func highPassEQ(for deck: PlaybackDeck) -> AVAudioUnitEQ {
+    private func deckEQ(for deck: PlaybackDeck) -> AVAudioUnitEQ {
         switch deck {
         case .primary:
-            return outgoingHighPassEQ
+            return primaryDeckEQ
         case .smartMix:
-            return smartMixHighPassEQ
+            return smartMixDeckEQ
         }
     }
 
@@ -408,7 +410,7 @@ public final class AudioPlaybackEngine {
         playerNode(for: inactiveDeck).stop()
         setVolume(0, for: inactiveDeck)
         resetTimePitch(for: inactiveDeck)
-        resetHighPass(for: inactiveDeck)
+        resetFilters(for: inactiveDeck)
     }
 
     static func smartMixFormatsMatch(_ lhs: AVAudioFormat?, _ rhs: AVAudioFormat) -> Bool {
@@ -416,51 +418,6 @@ public final class AudioPlaybackEngine {
         return lhs.channelCount == rhs.channelCount
             && lhs.commonFormat == rhs.commonFormat
             && lhs.isInterleaved == rhs.isInterleaved
-    }
-
-    static func smartMixIncomingPosition(
-        incomingStartTime: TimeInterval,
-        elapsed: TimeInterval,
-        incomingPlaybackRate: Double,
-        duration: TimeInterval
-    ) -> TimeInterval {
-        let scaledElapsed = max(0, elapsed) * max(0, incomingPlaybackRate)
-        return min(incomingStartTime + scaledElapsed, duration)
-    }
-
-    static func smartMixHighPassFrequency(
-        progress: Double,
-        sweep: SmartMixHighPassSweep,
-        sampleRate: Double
-    ) -> Float {
-        let safeSampleRate = sampleRate.isFinite && sampleRate > 0 ? sampleRate : 44100
-        let nyquistLimit = max(Float(20), Float(safeSampleRate / 2) - 1)
-        let start = min(max(20, sweep.startFrequency), nyquistLimit)
-        let end = min(max(start, sweep.endFrequency), nyquistLimit)
-        guard progress > sweep.startProgress else { return start }
-
-        let rampProgress = min(max((progress - sweep.startProgress) / max(0.001, 1 - sweep.startProgress), 0), 1)
-        let easedProgress = smoothStep(rampProgress)
-        return start + Float(easedProgress) * (end - start)
-    }
-
-    static func smartMixTempoRate(
-        progress: Double,
-        targetRate: Double,
-        startProgress: Double = 0.15
-    ) -> Float {
-        guard targetRate.isFinite, targetRate > 0 else { return 1 }
-        let clampedStart = min(max(startProgress, 0), 1)
-        guard progress > clampedStart else { return 1 }
-
-        let rampProgress = min(max((progress - clampedStart) / max(0.001, 1 - clampedStart), 0), 1)
-        let easedProgress = smoothStep(rampProgress)
-        return Float(1 + (targetRate - 1) * easedProgress)
-    }
-
-    private static func smoothStep(_ value: Double) -> Double {
-        let clamped = min(max(value, 0), 1)
-        return clamped * clamped * (3 - 2 * clamped)
     }
 
     // MARK: - Route Change Recovery
@@ -1402,7 +1359,7 @@ public final class AudioPlaybackEngine {
     }
 
     var smartMixSkipThreshold: TimeInterval {
-        smartMixTransition?.skipThreshold ?? 0
+        smartMixTransition?.plan.skipToIncomingThreshold ?? 0
     }
 
     var hasPromotedSmartMixTransition: Bool {
@@ -1486,11 +1443,10 @@ public final class AudioPlaybackEngine {
         let incomingPlayer = playerNode(for: incomingDeck)
 
         resetSmartMixEffects()
-        timePitchNode(for: incomingDeck).rate = Float(plan.incomingPlaybackRate)
-        timePitchNode(for: outgoingDeck).rate = 1
         incomingPlayer.stop()
-        setVolume(0, for: incomingDeck)
-        setVolume(1, for: outgoingDeck)
+        let opening = plan.deckStates(elapsed: 0)
+        apply(opening.outgoing, to: outgoingDeck)
+        apply(opening.incoming, to: incomingDeck)
 
         incomingPlayer.scheduleSegment(
             file,
@@ -1518,12 +1474,7 @@ public final class AudioPlaybackEngine {
             contentFrameCount: contentFrames,
             sampleRate: incomingRate,
             duration: Double(contentFrames) / incomingRate,
-            incomingStartTime: plan.incomingStartTime,
-            transitionDuration: plan.transitionDuration,
-            skipThreshold: plan.skipToIncomingThreshold,
-            incomingPlaybackRate: plan.incomingPlaybackRate,
-            outgoingPlaybackRate: plan.outgoingPlaybackRate,
-            highPassSweep: plan.outgoingHighPassSweep,
+            plan: plan,
             generation: myGeneration,
             startedAtWallTime: CACurrentMediaTime()
         )
@@ -1532,11 +1483,10 @@ public final class AudioPlaybackEngine {
 
         EnsembleLogger.debug(
             "[AudioEngine] SmartMix started trackId=\(trackId)"
+            + " style=\(plan.style.rawValue)"
             + " transition=\(String(format: "%.1f", plan.transitionDuration))s"
             + " incomingStart=\(String(format: "%.1f", plan.incomingStartTime))s"
-            + " rate=\(String(format: "%.3f", plan.incomingPlaybackRate))"
-            + " outgoingRate=\(String(format: "%.3f", plan.outgoingPlaybackRate))"
-            + " tempoMatched=\(plan.tempoMatched)"
+            + " outgoingEndRate=\(String(format: "%.3f", plan.outgoingEndRate))"
             + " outgoingDeck=\(outgoingDeck.rawValue)"
             + " incomingDeck=\(incomingDeck.rawValue)"
         )
@@ -1586,7 +1536,7 @@ public final class AudioPlaybackEngine {
     private func startSmartMixFadeTimer() {
         smartMixFadeTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: timeUpdateQueue)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(50))
+        timer.schedule(deadline: .now(), repeating: .milliseconds(20))
         timer.setEventHandler { [weak self] in
             DispatchQueue.main.async {
                 self?.updateSmartMixFade()
@@ -1599,42 +1549,17 @@ public final class AudioPlaybackEngine {
     private func updateSmartMixFade() {
         guard let transition = smartMixTransition else { return }
         let elapsed = smartMixTransitionElapsed
-        let progress = min(max(elapsed / max(transition.transitionDuration, 0.001), 0), 1)
-        setVolume(Float(cos(progress * .pi / 2)), for: transition.outgoingDeck)
-        setVolume(Float(sin(progress * .pi / 2)), for: transition.incomingDeck)
-        applySmartMixHighPass(progress: progress, transition: transition)
-        applySmartMixTempoRamp(progress: progress, transition: transition)
+        let states = transition.plan.deckStates(elapsed: elapsed)
+        apply(states.outgoing, to: transition.outgoingDeck)
+        apply(states.incoming, to: transition.incomingDeck)
 
-        if elapsed >= transition.midpoint {
+        if elapsed >= transition.plan.metadataPromotionTime {
             promoteSmartMixIfNeeded()
         }
 
-        if elapsed >= transition.transitionDuration {
+        if elapsed >= transition.plan.transitionDuration {
             finishSmartMixTransition(continueAt: currentSmartMixIncomingTime())
         }
-    }
-
-    private func applySmartMixHighPass(progress: Double, transition: SmartMixEngineTransition) {
-        guard let sweep = transition.highPassSweep,
-              let band = highPassEQ(for: transition.outgoingDeck).bands.first
-        else {
-            resetHighPass(for: transition.outgoingDeck)
-            return
-        }
-
-        band.bypass = false
-        band.frequency = Self.smartMixHighPassFrequency(
-            progress: progress,
-            sweep: sweep,
-            sampleRate: sampleRate
-        )
-    }
-
-    private func applySmartMixTempoRamp(progress: Double, transition: SmartMixEngineTransition) {
-        timePitchNode(for: transition.outgoingDeck).rate = Self.smartMixTempoRate(
-            progress: progress,
-            targetRate: transition.outgoingPlaybackRate
-        )
     }
 
     private func promoteSmartMixIfNeeded() {
@@ -1679,9 +1604,7 @@ public final class AudioPlaybackEngine {
         setVolume(0, for: transition.outgoingDeck)
         setVolume(1, for: transition.incomingDeck)
         playerNode(for: transition.outgoingDeck).stop()
-        resetHighPass(for: transition.outgoingDeck)
-        resetTimePitch(for: transition.outgoingDeck)
-        resetTimePitch(for: transition.incomingDeck)
+        resetSmartMixEffects()
         smartMixTransition = nil
         onSmartMixTransitionActiveChanged?(false, playbackRequestGeneration)
 
@@ -1699,13 +1622,7 @@ public final class AudioPlaybackEngine {
 
     private func currentSmartMixIncomingTime() -> TimeInterval {
         guard let transition = smartMixTransition else { return currentTimeSubject.value.time }
-        let elapsed = max(0, CACurrentMediaTime() - transition.startedAtWallTime)
-        return Self.smartMixIncomingPosition(
-            incomingStartTime: transition.incomingStartTime,
-            elapsed: elapsed,
-            incomingPlaybackRate: transition.incomingPlaybackRate,
-            duration: transition.duration
-        )
+        return min(transition.plan.incomingPosition(elapsed: smartMixTransitionElapsed), transition.duration)
     }
 
     private func handleSmartMixIncomingComplete(generation: UInt64) {
