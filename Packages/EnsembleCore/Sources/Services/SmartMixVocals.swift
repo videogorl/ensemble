@@ -35,6 +35,10 @@ public struct SmartMixVocals: Equatable, Sendable {
     /// Share of the stretch that scores as vocal, 0...1.
     public var vocalShare: Double { windowScores.isEmpty ? 0 : Double(vocalWindowCount) / Double(windowScores.count) }
     public var hasVocals: Bool { vocalSeconds >= Self.minimumVocalSeconds }
+    /// Song time of the first vocal window, or the end of the stretch when there is none.
+    public var vocalFreeUntil: TimeInterval {
+        windowScores.firstIndex { $0 >= Self.vocalScore }.map { range.lowerBound + Double($0) * Self.hop } ?? range.upperBound
+    }
 
     public init(range: Range<TimeInterval>, windowScores: [Float]) {
         self.range = range

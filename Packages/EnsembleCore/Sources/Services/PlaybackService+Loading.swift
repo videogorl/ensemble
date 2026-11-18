@@ -1079,8 +1079,8 @@ extension PlaybackService {
                         + " outgoingGrid=\(String(format: "%.2f", outgoingAnalysis.beatGrid?.confidence ?? 0))"
                         + " incomingBPM=\(String(format: "%.1f", incomingAnalysis.beatGrid?.bpm ?? 0))"
                         + " incomingGrid=\(String(format: "%.2f", incomingAnalysis.beatGrid?.confidence ?? 0))"
-                        + " keys=\(keys.map { $0 ? "compatible" : "clash" } ?? "unknown")"
-                        + " incomingVocals=\(incomingAnalysis.openingHasVocals.map { $0 ? "yes" : "no" } ?? "unknown")"
+                        + " keysCompatible=\(keys)"
+                        + " incomingVocalFreeUntil=\(incomingAnalysis.vocalFreeUntil.map { String(format: "%.1fs", $0) } ?? "unknown")"
                         + " tempoGate=\(tempoGate.reason ?? "open")"
                     )
                     guard SmartMixPlanner.shouldStartTransition(

@@ -50,20 +50,21 @@ final class SmartMixPlannerTests: XCTestCase {
     func testBeatBlendNeedsTrustedGridsCompatibleKeysAndNoOpeningVocal() throws {
         let cMajor = SmartMixKey(tonic: 0, mode: .major, confidence: 0.02)
         let gMajor = SmartMixKey(tonic: 7, mode: .major, confidence: 0.3)
+        let trustedC = SmartMixKey(tonic: 0, mode: .major, confidence: 0.3)
         let fSharpMajor = SmartMixKey(tonic: 6, mode: .major, confidence: 0.3)
         // 120 BPM ending into 123 BPM, both with bar lines.
-        func outgoing(confidence: Double = 0.9, bars: Double = 0.9, quiet: Double = 1, loudness: Float = -9, keys: Bool = true) -> SmartMixAnalysis {
+        func outgoing(confidence: Double = 0.9, bars: Double = 0.9, quiet: Double = 1, loudness: Float = -9, key: SmartMixKey? = cMajor) -> SmartMixAnalysis {
             SmartMixAnalysis(
                 leadingSilence: 0, trailingSilence: 0, analyzedDuration: 180, quietEnding: quiet, fadeOutDuration: quiet > 10 ? nil : 6,
                 outroLoudness: loudness, beatGrid: grid(spacing: 0.5, start: 0.1, end: 180, confidence: confidence, barConfidence: bars, firstDownbeat: 1),
-                keys: keys ? SmartMixKeys(opening: cMajor, main: cMajor, ending: cMajor) : nil
+                keys: key.map { SmartMixKeys(opening: $0, main: $0, ending: $0) }
             )
         }
-        func incoming(spacing: Double = 60 / 123, confidence: Double = 0.9, bars: Double = 0.9, opening: SmartMixKey = gMajor, vocals: Bool? = false, loudness: Float = -11) -> SmartMixAnalysis {
+        func incoming(spacing: Double = 60 / 123, confidence: Double = 0.9, bars: Double = 0.9, opening: SmartMixKey = gMajor, vocalFreeUntil: TimeInterval? = 45) -> SmartMixAnalysis {
             SmartMixAnalysis(
-                leadingSilence: 0.5, trailingSilence: 0, analyzedDuration: 200, introLoudness: loudness,
+                leadingSilence: 0.5, trailingSilence: 0, analyzedDuration: 200,
                 beatGrid: grid(spacing: spacing, start: 0.2, end: 200, confidence: confidence, barConfidence: bars, firstDownbeat: 2),
-                keys: SmartMixKeys(opening: opening, main: opening, ending: opening), openingHasVocals: vocals
+                keys: SmartMixKeys(opening: opening, main: opening, ending: opening), vocalFreeUntil: vocalFreeUntil
             )
         }
         // outgoing, incoming, genres -> style (a non-blend falls through to gapless)
@@ -72,15 +73,15 @@ final class SmartMixPlannerTests: XCTestCase {
             (outgoing(), incoming(), .unsuited, .gapless),
             (outgoing(), incoming(), .pop, .popEcho),                                   // leaves on a bar line
             (outgoing(bars: 0.2), incoming(), .pop, .popReverb),                        // outgoing bar lines not trusted
-            (outgoing(), incoming(vocals: nil), .beatMatched, .filterBlend),            // unknown vocals do not block
-            (outgoing(), incoming(vocals: true), .beatMatched, .gapless),               // a vocal in the opening
-            (outgoing(), incoming(opening: fSharpMajor), .pop, .gapless),               // clashing keys
-            (outgoing(keys: false), incoming(), .beatMatched, .gapless),                // key unknown
+            (outgoing(), incoming(vocalFreeUntil: nil), .beatMatched, .filterBlend),            // unknown vocals do not block
+            (outgoing(), incoming(vocalFreeUntil: 12), .beatMatched, .gapless),        // singing before the blend lands
+            (outgoing(key: trustedC), incoming(), .beatMatched, .filterExpansion),      // both keys trusted and a fifth apart
+            (outgoing(key: trustedC), incoming(opening: fSharpMajor), .beatMatched, .filterBlend),  // a clash never blocks
+            (outgoing(key: nil), incoming(), .beatMatched, .filterBlend),               // key unknown
             (outgoing(confidence: 0.55), incoming(), .beatMatched, .gapless),           // grid not trusted
             (outgoing(), incoming(confidence: 0.55), .pop, .gapless),
             (outgoing(), incoming(spacing: 60 / 140.0), .beatMatched, .gapless),        // tempos too far apart
             (outgoing(loudness: -20), incoming(), .beatMatched, .gapless),              // too quiet to blend
-            (outgoing(), incoming(loudness: -24), .beatMatched, .gapless),
             (outgoing(quiet: 20), incoming(), .beatMatched, .gapless),                  // too much ending to drop
         ]
         for (index, (outgoingAnalysis, incomingAnalysis, genres, style)) in cases.enumerated() {
@@ -93,7 +94,7 @@ final class SmartMixPlannerTests: XCTestCase {
             ))
             XCTAssertEqual(plan.style, style, "case \(index)")
             guard style.isBeatMatched else { continue }
-            let beats = style == .filterBlend ? 32.0 : style == .popReverb ? 16 : 8
+            let beats = style == .popEcho ? 8.0 : style == .popReverb ? 16 : 32
             XCTAssertEqual(plan.transitionDuration, beats * 60 / 121.5, accuracy: 0.001, "case \(index)")
             XCTAssertEqual(plan.outgoingEndRate, 1.025, accuracy: 0.0001, "case \(index)")
             // Both songs start on a beat, on a bar line when both grids trust theirs, and the outgoing song's
@@ -124,14 +125,14 @@ final class SmartMixPlannerTests: XCTestCase {
                 keys: SmartMixKeys(opening: key(0), main: key(0), ending: key(0))
             ),
             incomingAnalysis: SmartMixAnalysis(
-                leadingSilence: 0.5, trailingSilence: 0, analyzedDuration: 200, introLoudness: -11,
+                leadingSilence: 0.5, trailingSilence: 0, analyzedDuration: 200,
                 beatGrid: grid(spacing: 60 / 61.5, start: 0.7, end: 200, confidence: 0.8, barConfidence: 0),
                 keys: SmartMixKeys(opening: key(0), main: key(0), ending: key(0))
             ),
             blendGenres: .beatMatched
         ))
         let duration = 32 * 60 / 121.5
-        XCTAssertEqual(plan.style, .filterBlend)
+        XCTAssertEqual(plan.style, .filterExpansion)
         XCTAssertEqual(plan.transitionDuration, duration, accuracy: 0.0001)
         XCTAssertEqual(plan.outgoingEndRate, 1.025, accuracy: 0.0001)
         XCTAssertEqual(plan.incomingStartRate, 1 / 1.025, accuracy: 0.0001)
@@ -174,6 +175,17 @@ final class SmartMixPlannerTests: XCTestCase {
         XCTAssertEqual(reverbed.deckStates(elapsed: 5).incoming, untouched)
 
         // Filter blend: the outgoing song keeps what is below a falling cutoff, the next one what is above it.
+        // Filter expansion: both songs in full for the first half, the next one widening from 1 kHz.
+        let expansion = plan(.filterExpansion).deckStates(elapsed: 2)
+        XCTAssertNil(expansion.outgoing.lowPass)
+        XCTAssertEqual(expansion.incoming.highPass ?? 0, 1_000, accuracy: 1)
+        XCTAssertEqual(expansion.incoming.lowPass ?? 0, 4_486.5, accuracy: 1)
+        let thinning = plan(.filterExpansion).deckStates(elapsed: 6)
+        XCTAssertEqual(thinning.outgoing.lowPass ?? 0, 5_015, accuracy: 1)
+        XCTAssertEqual(thinning.outgoing.highPass ?? 0, 200, accuracy: 1)
+        XCTAssertEqual(thinning.incoming.gain, 1)
+        XCTAssertNil(thinning.incoming.lowPass)
+
         let blend = plan(.filterBlend, rate: 1.04)
         let start = blend.deckStates(elapsed: 0)
         XCTAssertEqual(start.outgoing, SmartMixDeckState(gain: 1, rate: 1, lowPass: 20_000, highPass: nil))
@@ -292,8 +304,8 @@ final class SmartMixPlannerTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let analysis = SmartMixAnalysis(
-            leadingSilence: 0.2, trailingSilence: 1, analyzedDuration: 200, quietEnding: 3, fadeOutDuration: 6, introLoudness: -11, outroLoudness: -9,
-            beatGrid: grid(spacing: 0.5, confidence: 0.8), keys: SmartMixKeys(opening: key(2), main: key(9), ending: key(4)), openingHasVocals: false
+            leadingSilence: 0.2, trailingSilence: 1, analyzedDuration: 200, quietEnding: 3, fadeOutDuration: 6, outroLoudness: -9,
+            beatGrid: grid(spacing: 0.5, confidence: 0.8), keys: SmartMixKeys(opening: key(2), main: key(9), ending: key(4)), vocalFreeUntil: 31.5
         )
         let store = SmartMixAnalysisStore(directory: directory, version: 3)
         XCTAssertNil(store.load(key: "track|1|2"))

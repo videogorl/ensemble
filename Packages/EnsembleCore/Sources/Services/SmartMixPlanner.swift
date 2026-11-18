@@ -16,13 +16,12 @@ public struct SmartMixAnalysis: Equatable, Sendable, Codable {
     /// Where the first louder section starts when the track opens with a quieter intro.
     public let bodyStartTime: TimeInterval?
     /// Average loudness of the opening and of the last full-level stretch, for the beat-matched blend.
-    public let introLoudness: Float
     public let outroLoudness: Float
     /// The whole song's beats and bar lines; nil when the audio gave none.
     public let beatGrid: SmartMixBeatGrid?
     public let keys: SmartMixKeys?
-    /// Whether the opening a blend would land in has vocals; nil when unknown.
-    public let openingHasVocals: Bool?
+    /// No vocal was found in the opening before this song time; nil when unknown.
+    public let vocalFreeUntil: TimeInterval?
 
     public static let unavailable = SmartMixAnalysis(leadingSilence: 0, trailingSilence: 0, analyzedDuration: 0)
 
@@ -34,11 +33,10 @@ public struct SmartMixAnalysis: Equatable, Sendable, Codable {
         fadeOutDuration: TimeInterval? = nil,
         fadeOutAudibleDuration: TimeInterval? = nil,
         bodyStartTime: TimeInterval? = nil,
-        introLoudness: Float = SmartMixLoudness.floor,
         outroLoudness: Float = SmartMixLoudness.floor,
         beatGrid: SmartMixBeatGrid? = nil,
         keys: SmartMixKeys? = nil,
-        openingHasVocals: Bool? = nil
+        vocalFreeUntil: TimeInterval? = nil
     ) {
         self.leadingSilence = max(0, leadingSilence)
         self.trailingSilence = max(0, trailingSilence)
@@ -47,11 +45,10 @@ public struct SmartMixAnalysis: Equatable, Sendable, Codable {
         self.fadeOutDuration = fadeOutDuration
         self.fadeOutAudibleDuration = fadeOutAudibleDuration
         self.bodyStartTime = bodyStartTime
-        self.introLoudness = introLoudness
         self.outroLoudness = outroLoudness
         self.beatGrid = beatGrid
         self.keys = keys
-        self.openingHasVocals = openingHasVocals
+        self.vocalFreeUntil = vocalFreeUntil
     }
 }
 
@@ -68,6 +65,9 @@ public enum SmartMixStyle: String, Equatable, Sendable {
     case easeIn
     /// Style 8: beat-matched; the outgoing song closes a low-pass while the next one opens up from the top.
     case filterBlend
+    /// Style 9: beat-matched, for songs in compatible keys; both play in full before the outgoing one thins
+    /// out from both ends, while the next one widens from a band around 1 kHz.
+    case filterExpansion
     /// Style 16: beat-matched Pop; the outgoing song is cut on the beat and leaves a beat-long echo.
     case popEcho
     /// Style 20: beat-matched Pop; the outgoing song is filtered away into reverb as the next one opens up.
@@ -76,7 +76,7 @@ public enum SmartMixStyle: String, Equatable, Sendable {
     /// Both songs' tempos glide to meet across the overlap, which starts on a beat of each.
     public var isBeatMatched: Bool {
         switch self {
-        case .filterBlend, .popEcho, .popReverb: true
+        case .filterBlend, .filterExpansion, .popEcho, .popReverb: true
         case .gapless, .crossfade, .overlap, .easeIn: false
         }
     }
@@ -182,6 +182,18 @@ public struct SmartMixPlan: Equatable, Sendable {
             outgoing.lowPass = sweep(20_000, 200, easeOut(progress, 2))
             incoming.highPass = sweep(20_000, 10, easeOut(progress, 2))
             incoming.lowPass = sweep(1_200, 20_000, pow(progress, 4))
+        case .filterExpansion:
+            outgoing.gain = Float(min(1, remaining / Self.edgeFadeDuration))
+            incoming.gain = Float(min(1, time / Self.edgeFadeDuration))
+            // Both songs sound together through the first half; then the outgoing one thins out from both ends.
+            if progress > 0.5 {
+                outgoing.lowPass = sweep(20_000, 20, easeOut(ramp(0.5, 1), 2))
+                outgoing.highPass = sweep(20, 200, easeOut(ramp(0.5, 0.75), 0.5))
+            }
+            if progress < 0.75 {
+                incoming.lowPass = sweep(1_000, 20_000, easeOut(ramp(0, 0.75), 0.5))
+                incoming.highPass = sweep(1_000, 20, easeOut(ramp(0.5, 0.75), 2))
+            }
         case .popEcho:
             // Apple's style 16 is over by its halfway point; the plan is that first half, so its times are doubled here.
             // The song is cut at the plan's midpoint and its last beat repeats in the echo, which fades out at the end.
@@ -333,11 +345,11 @@ public enum SmartMixPlanner {
         return mains.allSatisfy { $0.contains("pop") } ? .pop : .beatMatched
     }
 
-    /// Whether the outgoing song's ending and the incoming song's opening are in compatible keys (Apple's rule);
-    /// nil when either key is unknown. Keys count whatever their confidence.
-    public static func keysCompatible(outgoing: SmartMixAnalysis, incoming: SmartMixAnalysis) -> Bool? {
-        guard let ending = outgoing.keys?.ending, let opening = incoming.keys?.opening else { return nil }
-        return !ending.clashes(with: opening)
+    /// Whether the two songs' keys are known to go together. Apple never refuses a blend over key; it only keeps
+    /// its harmonic style (9) for compatible songs, judged on each song's main key. Both keys must be trusted.
+    public static func keysCompatible(outgoing: SmartMixAnalysis, incoming: SmartMixAnalysis) -> Bool {
+        guard let first = outgoing.keys?.main, let second = incoming.keys?.main, first.isTrusted, second.isTrusted else { return false }
+        return !first.clashes(with: second)
     }
 
     public static func normalizedIncomingTempo(
@@ -379,7 +391,9 @@ public enum SmartMixPlanner {
         func blend(_ style: SmartMixStyle, beats: Double) -> Blend? {
             beatBlend(style, beats: Int(beats), outgoingDuration: outgoingDuration, incomingDuration: incomingDuration, outgoing: outgoing, incoming: incoming, incomingStart: incomingStart)
         }
-        guard genres == .pop else { return blend(.filterBlend, beats: blendBeats) }
+        guard genres == .pop else {
+            return blend(keysCompatible(outgoing: outgoing, incoming: incoming) ? .filterExpansion : .filterBlend, beats: blendBeats)
+        }
         guard let reverb = blend(.popReverb, beats: popReverbBeats) else { return nil }
         if reverb.startsOnBar, let echo = blend(.popEcho, beats: popEchoBeats), echo.startsOnBar {
             return echo
@@ -402,11 +416,7 @@ public enum SmartMixPlanner {
         let droppedEnding = outgoing.fadeOutDuration ?? outgoing.quietEnding
         guard let outgoingGrid = outgoing.beatGrid, outgoingGrid.isTrusted,
               let incomingGrid = incoming.beatGrid, incomingGrid.isTrusted,
-              keysCompatible(outgoing: outgoing, incoming: incoming) == true,
-              // Apple's rule: no blend into a song whose opening has a strong vocal.
-              incoming.openingHasVocals != true,
               outgoing.outroLoudness >= minimumBlendLoudness,
-              incoming.introLoudness >= minimumBlendLoudness,
               droppedEnding <= maximumDroppedEnding
         else {
             return nil
@@ -424,7 +434,9 @@ public enum SmartMixPlanner {
               let entry = incomingBeats.indices.first(where: { index in
                   incomingBeats[index] >= incomingStart && (!onBars || incomingGrid.isDownbeat(index))
               }),
-              entry + beats < incomingBeats.count
+              entry + beats < incomingBeats.count,
+              // Apple's rule: the incoming song must not be singing before the blend lands.
+              incoming.vocalFreeUntil.map({ incomingBeats[entry + beats] <= $0 }) ?? true
         else {
             return nil
         }
@@ -665,7 +677,7 @@ private actor SmartMixSerialAnalyzer {
 /// One saved analysis per audio file, in Caches. A missing, unreadable or other-version file reads as nothing saved.
 struct SmartMixAnalysisStore: Sendable {
     /// Change whenever `SmartMixAnalysis` or the analysis behind it changes; files saved by another version are never read.
-    static let formatVersion = 1
+    static let formatVersion = 2
 
     let directory: URL
     let version: Int
@@ -709,7 +721,7 @@ public final class SmartMixAnalysisService {
     /// Longer files (mixes, audiobooks) get no beat grid, key or vocals, which keeps the 11 kHz copy under 40 MB.
     static let maximumBeatAnalysisDuration: TimeInterval = 15 * 60
     /// The opening a blend lands in, from the first sound: Apple checks it for vocals.
-    static let openingVocalsDuration: TimeInterval = 16
+    static let openingVocalsDuration: TimeInterval = 45
 
     private let store: SmartMixAnalysisStore
     private let lock = NSLock()
@@ -800,7 +812,6 @@ public final class SmartMixAnalysisService {
         let quietEnding = SmartMixLoudness.quietEnding(tail)
         // The stretch a beat-matched blend would use: 16 s from the first sound, and 16 s up to the fade or the last sound.
         let blendSamples = Int(16 / step)
-        let introFirst = min(Int(leading / step), head.count)
         let outroEnd = max(0, fadeOutStart ?? tail.count - Int(quietEnding / step))
 
         let (beatGrid, keys) = duration <= maximumBeatAnalysisDuration ? beatGridAndKeys(file: file) : (nil, nil)
@@ -814,11 +825,10 @@ public final class SmartMixAnalysisService {
                 TimeInterval((tail.lastIndex { $0 > SmartMixLoudness.inaudibleLevel } ?? start - 1) - start + 1) * step
             },
             bodyStartTime: SmartMixLoudness.bodyStart(head).map { TimeInterval($0) * step },
-            introLoudness: meanLoudness(head[introFirst ..< min(head.count, introFirst + blendSamples)]),
             outroLoudness: meanLoudness(tail[max(0, outroEnd - blendSamples) ..< outroEnd]),
             beatGrid: beatGrid,
             keys: keys,
-            openingHasVocals: duration <= maximumBeatAnalysisDuration ? openingHasVocals(fileURL: fileURL, firstSound: leading) : nil
+            vocalFreeUntil: duration <= maximumBeatAnalysisDuration ? vocalFreeUntil(fileURL: fileURL, firstSound: leading) : nil
         )
     }
 
@@ -867,9 +877,9 @@ public final class SmartMixAnalysisService {
         return (samples, format.sampleRate / Double(factor))
     }
 
-    private static func openingHasVocals(fileURL: URL, firstSound: TimeInterval) -> Bool? {
+    private static func vocalFreeUntil(fileURL: URL, firstSound: TimeInterval) -> TimeInterval? {
         #if canImport(SoundAnalysis)
-        return try? SmartMixVocals.analyze(url: fileURL, range: firstSound ..< firstSound + openingVocalsDuration).hasVocals
+        return (try? SmartMixVocals.analyze(url: fileURL, range: firstSound ..< firstSound + openingVocalsDuration))?.vocalFreeUntil
         #else
         return nil
         #endif
