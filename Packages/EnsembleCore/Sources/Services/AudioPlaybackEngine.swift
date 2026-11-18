@@ -14,8 +14,8 @@ import QuartzCore
 ///
 /// Audio graph (isolation disabled):
 /// ```
-/// primary deck: file/stream -> primarySourceMixer -> primaryTimePitch -> primaryDeckEQ -> deckMixer -> mainMixer -> output
-/// SmartMix deck: smartMixPlayerNode -> incomingTimePitch -> smartMixDeckEQ -> deckMixer -> mainMixer -> output
+/// primary deck: file/stream -> primarySourceMixer -> primaryTimePitch -> primaryDeckEQ -> primaryDeckReverb -> deckMixer -> mainMixer -> output
+/// SmartMix deck: smartMixPlayerNode -> incomingTimePitch -> smartMixDeckEQ -> smartMixDeckReverb -> deckMixer -> mainMixer -> output
 /// ```
 ///
 /// Audio graph (isolation enabled):
@@ -44,6 +44,11 @@ public final class AudioPlaybackEngine {
     /// Band 0 is a high-pass and band 1 a low-pass; both stay bypassed outside a filtered SmartMix blend.
     private let primaryDeckEQ = AVAudioUnitEQ(numberOfBands: 2)
     private let smartMixDeckEQ = AVAudioUnitEQ(numberOfBands: 2)
+    /// Bypassed except while a SmartMix overlap lets a short ending ring out through it.
+    private let primaryDeckReverb = AVAudioUnitReverb()
+    private let smartMixDeckReverb = AVAudioUnitReverb()
+    /// How long a reverb is left running after its song has ended.
+    private static let reverbTailDuration: TimeInterval = 8
     private let primaryTimePitch = AVAudioUnitTimePitch()
     private let incomingTimePitch = AVAudioUnitTimePitch()
     private let deckMixer = AVAudioMixerNode()
@@ -257,6 +262,8 @@ public final class AudioPlaybackEngine {
         engine.attach(primarySourceMixer)
         engine.attach(primaryDeckEQ)
         engine.attach(smartMixDeckEQ)
+        engine.attach(primaryDeckReverb)
+        engine.attach(smartMixDeckReverb)
         engine.attach(primaryTimePitch)
         engine.attach(incomingTimePitch)
         engine.attach(deckMixer)
@@ -278,10 +285,12 @@ public final class AudioPlaybackEngine {
         engine.connect(playerNode, to: primarySourceMixer, format: processingFormat)
         engine.connect(primarySourceMixer, to: primaryTimePitch, format: processingFormat)
         engine.connect(primaryTimePitch, to: primaryDeckEQ, format: processingFormat)
-        engine.connect(primaryDeckEQ, to: deckMixer, format: processingFormat)
+        engine.connect(primaryDeckEQ, to: primaryDeckReverb, format: processingFormat)
+        engine.connect(primaryDeckReverb, to: deckMixer, format: processingFormat)
         engine.connect(smartMixPlayerNode, to: incomingTimePitch, format: processingFormat)
         engine.connect(incomingTimePitch, to: smartMixDeckEQ, format: processingFormat)
-        engine.connect(smartMixDeckEQ, to: deckMixer, format: processingFormat)
+        engine.connect(smartMixDeckEQ, to: smartMixDeckReverb, format: processingFormat)
+        engine.connect(smartMixDeckReverb, to: deckMixer, format: processingFormat)
         engine.connect(deckMixer, to: mainMixer, format: processingFormat)
         recordDownstreamGraphMutation(reason: "initialSetup")
 
@@ -314,10 +323,9 @@ public final class AudioPlaybackEngine {
     }
 
     private func configureSmartMixEffectDefaults() {
-        resetFilters(for: .primary)
-        resetFilters(for: .smartMix)
-        resetTimePitch(for: .primary)
-        resetTimePitch(for: .smartMix)
+        primaryDeckReverb.loadFactoryPreset(.cathedral)
+        smartMixDeckReverb.loadFactoryPreset(.cathedral)
+        resetSmartMixEffects()
     }
 
     private func resetFilters(for deck: PlaybackDeck) {
@@ -325,6 +333,12 @@ public final class AudioPlaybackEngine {
             band.filterType = type
             band.bypass = true
         }
+    }
+
+    private func resetReverb(for deck: PlaybackDeck) {
+        let reverb = deckReverb(for: deck)
+        reverb.wetDryMix = 0
+        reverb.bypass = true
     }
 
     /// Applies one deck's share of a SmartMix overlap: level, speed and filter cutoffs.
@@ -336,6 +350,10 @@ public final class AudioPlaybackEngine {
             band.bypass = cutoff == nil
             if let cutoff { band.frequency = min(max(20, cutoff), highestCutoff) }
         }
+        // The reverb sits in the song's path, so a send level becomes a wet share of the mix.
+        let reverb = deckReverb(for: deck)
+        reverb.bypass = state.reverb <= 0
+        reverb.wetDryMix = 100 * state.reverb / (1 + state.reverb)
     }
 
     private func resetTimePitch(for deck: PlaybackDeck) {
@@ -344,8 +362,18 @@ public final class AudioPlaybackEngine {
         timePitch.rate = 1
     }
 
-    private func resetSmartMixEffects() {
-        configureSmartMixEffectDefaults()
+    /// Clears both decks' SmartMix effects. `tailDeck`'s reverb is left to ring out over the song that follows.
+    private func resetSmartMixEffects(keepingReverbTailOn tailDeck: PlaybackDeck? = nil) {
+        for deck in [PlaybackDeck.primary, .smartMix] {
+            resetFilters(for: deck)
+            resetTimePitch(for: deck)
+            if deck != tailDeck { resetReverb(for: deck) }
+        }
+        if let tailDeck {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.reverbTailDuration) { [weak self] in
+                self?.resetReverb(for: tailDeck)
+            }
+        }
     }
 
     private func playerNode(for deck: PlaybackDeck) -> AVAudioPlayerNode {
@@ -401,6 +429,15 @@ public final class AudioPlaybackEngine {
         }
     }
 
+    private func deckReverb(for deck: PlaybackDeck) -> AVAudioUnitReverb {
+        switch deck {
+        case .primary:
+            return primaryDeckReverb
+        case .smartMix:
+            return smartMixDeckReverb
+        }
+    }
+
     private func setVolume(_ volume: Float, for deck: PlaybackDeck) {
         playerNode(for: deck).volume = volume
     }
@@ -411,6 +448,7 @@ public final class AudioPlaybackEngine {
         setVolume(0, for: inactiveDeck)
         resetTimePitch(for: inactiveDeck)
         resetFilters(for: inactiveDeck)
+        resetReverb(for: inactiveDeck)
     }
 
     static func smartMixFormatsMatch(_ lhs: AVAudioFormat?, _ rhs: AVAudioFormat) -> Bool {
@@ -1612,7 +1650,7 @@ public final class AudioPlaybackEngine {
         setVolume(0, for: transition.outgoingDeck)
         setVolume(1, for: transition.incomingDeck)
         playerNode(for: transition.outgoingDeck).stop()
-        resetSmartMixEffects()
+        resetSmartMixEffects(keepingReverbTailOn: transition.plan.outgoingReverb ? transition.outgoingDeck : nil)
         smartMixTransition = nil
         onSmartMixTransitionActiveChanged?(false, playbackRequestGeneration)
 

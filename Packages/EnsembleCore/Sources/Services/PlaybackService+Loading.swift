@@ -1068,6 +1068,7 @@ extension PlaybackService {
                 ) {
                     EnsembleLogger.debug(
                         "[SmartMix] Planned style=\(plan.style.rawValue)"
+                        + " reverb=\(plan.outgoingReverb)"
                         + " overlap=\(String(format: "%.1f", plan.transitionDuration))s"
                         + " incomingStart=\(String(format: "%.1f", plan.incomingStartTime))s"
                         + " outgoingBPM=\(String(format: "%.1f", outgoingAnalysis.outroTempo.estimatedBPM ?? 0))"

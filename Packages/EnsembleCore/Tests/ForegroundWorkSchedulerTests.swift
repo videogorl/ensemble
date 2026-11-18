@@ -133,7 +133,7 @@ final class ForegroundWorkSchedulerTests: XCTestCase {
         scheduler.clearLaunchState()
         scheduler.setForegroundActive(false)
 
-        let allowed = await scheduler.waitUntilAllowed(.smartMixAnalysis, policy: .playbackSafe)
+        let allowed = await scheduler.waitUntilAllowed(.sidecarAnalysis, policy: .playbackSafe)
 
         XCTAssertFalse(allowed)
     }

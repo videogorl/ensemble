@@ -719,7 +719,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: Self.maxHistorySize)
         artifactCache = .shared
         prefetchController = PlaybackPrefetchController(artifactCache: artifactCache)
-        smartMixAnalysisService = SmartMixAnalysisService(foregroundWorkScheduler: foregroundWorkScheduler)
+        smartMixAnalysisService = SmartMixAnalysisService()
         nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader, libraryChanges: libraryChanges)
         audioSessionCoordinator = PlaybackAudioSessionCoordinator()
         startupCoordinator = PlaybackStartupCoordinator()

@@ -373,20 +373,9 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
   beat (tempo comes from a 30 s estimate, not a beat grid) or starting on the wrong beat of the bar.
 - Next step: listen to each style, then record them from the Mac build with `scripts/automix-lab` and compare
   with Apple's recordings of the same pairs.
-- Known gaps against Apple: no reverb variants (styles 33, 44), no Pop echo or reverb styles (16, 20), no key
+- Known gaps against Apple: no Pop echo or reverb styles (16, 20), no key
   or vocal-clash check before a beat-matched blend, no bar lines, and the blend always starts the next song at
   its first sound where Apple often enters later.
-
-## Confirmed: SmartMix analysis waits for startup sync, about 2.5 minutes on the iPhone 16 Pro (2026-11-17)
-
-- Evidence: session log `$TMPDIR/smartmix-16pro/phone-gapless.log`. "Starting startup sync..." at 16:49:47,
-  "Startup sync complete" at 16:52:19; the SmartMix plan for the queued next song appeared 1.2 s after that,
-  with both files already local. `SmartMixAnalysisService` asks `ForegroundWorkScheduler` for `.playbackSafe`
-  work, which waits while `startupSyncInFlight`. A song that ended before the sync finished advanced with no
-  SmartMix transition.
-- Impact: no SmartMix for any song change in the first minutes after a cold launch on a large library.
-- Next step: decide whether SmartMix analysis (about 0.1 s of CPU per song in a release build) should wait
-  for startup sync at all, or why the sync takes this long with nothing changed.
 
 ## Suspected: XCUITest cannot start on the iPhone 16 Pro (2026-11-17)
 

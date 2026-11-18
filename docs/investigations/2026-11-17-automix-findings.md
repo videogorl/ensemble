@@ -177,6 +177,7 @@ computed from the Plex files of songs in both libraries (about 40,000 half-secon
 |---|---|---|---|---|
 | filter blend | 8 | both songs' first genre is electronic, dance, pop, hip-hop, R&B, country, reggae or world; both tempos estimated with confidence 0.82 or more and within 8% (directly or at half or double); both stretches average -15 dB or louder; at most 12 s of ending to leave out | 32 beats, tempo gliding from one song's to the other's | from its first sound, on a matching beat |
 | overlap, ease-in | 3, 4 | the outgoing song ends in a steady fall (6 dB below the 10 s before it, 1 dB/s or faster, audible for 2 s) and the next song steps up 6 dB within its first 10 s | the length of the fall, up to 20 s | two bars before the step (one if only one fits, else from the top); eased in over 2 s when it enters partway |
+| the same with reverb | 33, 44 | as above, and the fall stays above -55 dB for 5 s or less | as above; the outgoing song's reverb rises over 2 s and rings on after it ends | as above |
 | gapless | 0 | otherwise | from where the ending last drops to -30 dB, 1 to 10 s | at full level from its first sound (a silent opening up to 5 s is skipped) |
 | cross-fade | 1 | the outgoing file could not be analysed | 2 s | from the top |
 
@@ -196,7 +197,18 @@ Against Apple's plans for 497 pairs of the same recordings (`smartmix_plans4.jso
   tempo gate: the two estimates differ by more than 8%, often by a 4:3 or 3:2 ratio.
 - Apple's 2 s fallback, 20 pairs: SmartMix analyses the file itself, so it uses gapless there.
 
-Not built: the reverb variants (33, 44), the Pop styles (16, 20), a key or vocal-clash check, bar lines.
+- Reverb (styles 33 and 44): Apple's traces give a "non-silent duration" for the outgoing ending; on 43 traced
+  pairs it used reverb whenever that was 4 s or less and never at 6 s or more. Counting the half-seconds above
+  -55 dB after the fall starts reproduces the number (mean difference 0.5 s) and the choice on 40 of 43. On the
+  19 pairs where SmartMix and Apple both overlap, the reverb choice agrees on 14. SmartMix's reverb is in the
+  song's path instead of on a send, so the dry signal drops about 5 dB as the reverb comes up.
+
+Not built: the Pop styles (16, 20), a key or vocal-clash check, bar lines.
+
+SmartMix's tempo estimate against Apple's for the same songs (about 320): within 2% on 67%, and on 87% when
+SmartMix's own confidence is 0.82 or more (the rest of those are at half, double or a 3:2 ratio). A plain
+chroma key detector tried offline matched Apple's key on 58% of 118 songs and a related key (relative, parallel
+or a fifth away) on another 29%.
 
 ## Answers so far to the four questions
 

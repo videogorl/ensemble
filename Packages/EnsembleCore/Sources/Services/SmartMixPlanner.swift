@@ -61,6 +61,8 @@ public struct SmartMixAnalysis: Equatable, Sendable {
     public let quietEnding: TimeInterval
     /// Length of the final fade when the track dies away steadily; nil for a cold ending.
     public let fadeOutDuration: TimeInterval?
+    /// How much of that fade can still be heard (above `SmartMixLoudness.inaudibleLevel`).
+    public let fadeOutAudibleDuration: TimeInterval?
     /// Where the first louder section starts when the track opens with a quieter intro.
     public let bodyStartTime: TimeInterval?
     /// Average loudness of the opening and of the last full-level stretch, for the beat-matched blend.
@@ -77,6 +79,7 @@ public struct SmartMixAnalysis: Equatable, Sendable {
         analyzedDuration: TimeInterval,
         quietEnding: TimeInterval = 0,
         fadeOutDuration: TimeInterval? = nil,
+        fadeOutAudibleDuration: TimeInterval? = nil,
         bodyStartTime: TimeInterval? = nil,
         introLoudness: Float = SmartMixLoudness.floor,
         outroLoudness: Float = SmartMixLoudness.floor,
@@ -88,6 +91,7 @@ public struct SmartMixAnalysis: Equatable, Sendable {
         self.analyzedDuration = max(0, analyzedDuration)
         self.quietEnding = quietEnding.isFinite ? max(0, quietEnding) : 0
         self.fadeOutDuration = fadeOutDuration
+        self.fadeOutAudibleDuration = fadeOutAudibleDuration
         self.bodyStartTime = bodyStartTime
         self.introLoudness = introLoudness
         self.outroLoudness = outroLoudness
@@ -118,11 +122,15 @@ public struct SmartMixDeckState: Equatable, Sendable {
     /// Cutoffs in Hz; nil leaves the filter out of the path.
     public var lowPass: Float?
     public var highPass: Float?
+    /// Reverb send level, 0 for none.
+    public var reverb: Float = 0
 }
 
 public struct SmartMixPlan: Equatable, Sendable {
     public static let edgeFadeDuration: TimeInterval = 0.3
     public static let easeInDuration: TimeInterval = 2
+    /// Apple's styles 33 and 44: the outgoing song's reverb send reaches this level over `easeInDuration`.
+    public static let reverbSend: Float = 0.75
 
     public let style: SmartMixStyle
     public let transitionDuration: TimeInterval
@@ -134,6 +142,8 @@ public struct SmartMixPlan: Equatable, Sendable {
     /// starts it at. Both glide linearly, so the two keep one shared tempo throughout. 1 unless beat-matched.
     public let outgoingEndRate: Double
     public let incomingStartRate: Double
+    /// The outgoing song's ending is too short to cover the overlap on its own, so reverb carries it.
+    public let outgoingReverb: Bool
 
     public init(
         style: SmartMixStyle = .crossfade,
@@ -143,9 +153,11 @@ public struct SmartMixPlan: Equatable, Sendable {
         metadataPromotionTime: TimeInterval,
         skipToIncomingThreshold: TimeInterval,
         outgoingEndRate: Double = 1,
-        incomingStartRate: Double = 1
+        incomingStartRate: Double = 1,
+        outgoingReverb: Bool = false
     ) {
         self.style = style
+        self.outgoingReverb = outgoingReverb
         self.transitionDuration = transitionDuration
         self.outgoingStartTime = outgoingStartTime
         self.incomingStartTime = incomingStartTime
@@ -192,6 +204,9 @@ public struct SmartMixPlan: Equatable, Sendable {
             incoming.highPass = Float(20_000 - 19_990 * closing)
             incoming.lowPass = Float(1_200 + 18_800 * pow(progress, 4))
         }
+        if outgoingReverb {
+            outgoing.reverb = Self.reverbSend * Float(min(1, time / Self.easeInDuration))
+        }
         return (outgoing, incoming)
     }
 }
@@ -201,6 +216,8 @@ public enum SmartMixPlanner {
     public static let minimumGaplessDuration: TimeInterval = 1
     public static let maximumGaplessDuration: TimeInterval = 10
     public static let maximumFadeOverlapDuration: TimeInterval = 20
+    /// A fade heard for no longer than this gets reverb to carry it through the overlap.
+    public static let maximumReverbedFade: TimeInterval = 5
     public static let fallbackDuration: TimeInterval = 2
     public static let minimumTrackDuration: TimeInterval = 10
     /// A silent opening longer than this is treated as part of the song.
@@ -233,7 +250,8 @@ public enum SmartMixPlanner {
             duration: TimeInterval,
             outgoingStart: TimeInterval? = nil,
             incomingStart: TimeInterval,
-            outgoingEndRate: Double = 1
+            outgoingEndRate: Double = 1,
+            outgoingReverb: Bool = false
         ) -> SmartMixPlan {
             SmartMixPlan(
                 style: style,
@@ -243,7 +261,8 @@ public enum SmartMixPlanner {
                 metadataPromotionTime: duration / 2,
                 skipToIncomingThreshold: min(5, duration / 2),
                 outgoingEndRate: outgoingEndRate,
-                incomingStartRate: 1 / outgoingEndRate
+                incomingStartRate: 1 / outgoingEndRate,
+                outgoingReverb: outgoingReverb
             )
         }
 
@@ -267,7 +286,8 @@ public enum SmartMixPlanner {
             return plan(
                 entry > audibleStart + 0.25 ? .easeIn : .overlap,
                 duration: min(fade, maximumFadeOverlapDuration, longestOverlap),
-                incomingStart: entry
+                incomingStart: entry,
+                outgoingReverb: (outgoing.fadeOutAudibleDuration ?? fade) <= maximumReverbedFade
             )
         }
 
@@ -509,6 +529,8 @@ public enum SmartMixLoudness {
     public static let sampleDuration: TimeInterval = 0.5
     public static let floor: Float = -70
     public static let quietLevel: Float = -30
+    /// Below this a fading song no longer counts as sounding.
+    public static let inaudibleLevel: Float = -55
     /// A section counts as louder or quieter than its neighbour from this difference.
     public static let sectionStep: Float = 6
     public static let windowDuration: TimeInterval = 45
@@ -603,15 +625,14 @@ private actor SmartMixSerialAnalyzer {
 public final class SmartMixAnalysisService {
     private static let serialAnalyzer = SmartMixSerialAnalyzer()
 
-    private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private let lock = NSLock()
     private var cachedAnalyses: [String: SmartMixAnalysis] = [:]
     private var analysisTasks: [String: Task<SmartMixAnalysis, Never>] = [:]
 
-    public init(foregroundWorkScheduler: ForegroundWorkScheduling? = nil) {
-        self.foregroundWorkScheduler = foregroundWorkScheduler
-    }
+    public init() {}
 
+    /// The next song change depends on this, so it runs as soon as it is asked for: during startup sync, during
+    /// downloads and while the app is in the background. One file at a time keeps the cost to a fraction of a second.
     public func analysis(for trackId: String, fileURL: URL) async -> SmartMixAnalysis {
         let cacheKey = Self.cacheKey(trackId: trackId, fileURL: fileURL)
         if let cached = withLock({ cachedAnalyses[cacheKey] }) {
@@ -622,15 +643,8 @@ public final class SmartMixAnalysisService {
             return await task.value
         }
 
-        let scheduler = foregroundWorkScheduler
         let task = Task.detached(priority: .utility) {
-            if let scheduler {
-                guard await scheduler.waitUntilAllowed(.smartMixAnalysis, policy: .playbackSafe) else {
-                    return SmartMixAnalysis.unavailable
-                }
-                return await Self.serialAnalyzer.analysis(fileURL: fileURL)
-            }
-            return Self.analyze(fileURL: fileURL)
+            await Self.serialAnalyzer.analysis(fileURL: fileURL)
         }
         withLock { analysisTasks[cacheKey] = task }
 
@@ -708,6 +722,9 @@ public final class SmartMixAnalysisService {
             analyzedDuration: duration,
             quietEnding: quietEnding,
             fadeOutDuration: fadeOutStart.map { TimeInterval(tail.count - $0) * step },
+            fadeOutAudibleDuration: fadeOutStart.map { start in
+                TimeInterval((tail.lastIndex { $0 > SmartMixLoudness.inaudibleLevel } ?? start - 1) - start + 1) * step
+            },
             bodyStartTime: SmartMixLoudness.bodyStart(head).map { TimeInterval($0) * step },
             introLoudness: meanLoudness(head[introFirst ..< min(head.count, introFirst + blendSamples)]),
             outroLoudness: meanLoudness(tail[max(0, outroEnd - blendSamples) ..< outroEnd]),

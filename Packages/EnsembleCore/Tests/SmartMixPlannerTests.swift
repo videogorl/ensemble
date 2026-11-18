@@ -42,6 +42,14 @@ final class SmartMixPlannerTests: XCTestCase {
             XCTAssertEqual(plan.metadataPromotionTime, duration / 2, accuracy: 0.0001, "case \(index)")
             XCTAssertEqual(plan.outgoingEndRate, 1, "case \(index)")
         }
+
+        // A fade heard for five seconds or less gets reverb to carry it (Apple's styles 33 and 44).
+        for (audible, reverb) in [(4.0, true), (5.5, false)] {
+            let fading = SmartMixAnalysis(leadingSilence: 0, trailingSilence: 0, analyzedDuration: 180, fadeOutDuration: 7, fadeOutAudibleDuration: audible)
+            let plan = try XCTUnwrap(SmartMixPlanner.plan(outgoingDuration: 180, incomingDuration: 200, outgoingAnalysis: fading, incomingAnalysis: incoming(body: 1)))
+            XCTAssertEqual(plan.style, .overlap)
+            XCTAssertEqual(plan.outgoingReverb, reverb)
+        }
     }
 
     func testBeatBlendGlidesBetweenTemposOverEightBarsAndStartsOnTheBeat() throws {
@@ -101,6 +109,12 @@ final class SmartMixPlannerTests: XCTestCase {
         XCTAssertEqual(plan(.easeIn).deckStates(elapsed: 0).incoming.gain, 0)
         XCTAssertEqual(plan(.easeIn).deckStates(elapsed: 1).incoming.gain, 0.7071, accuracy: 0.001)
         XCTAssertEqual(plan(.easeIn).deckStates(elapsed: 2).incoming, untouched)
+
+        // With reverb the outgoing song's send rises to 0.75 over 2 s; the next song stays dry.
+        let reverbed = SmartMixPlan(style: .overlap, transitionDuration: 8, outgoingStartTime: 100, incomingStartTime: 0, metadataPromotionTime: 4, skipToIncomingThreshold: 4, outgoingReverb: true)
+        XCTAssertEqual(reverbed.deckStates(elapsed: 1).outgoing.reverb, 0.375, accuracy: 0.001)
+        XCTAssertEqual(reverbed.deckStates(elapsed: 5).outgoing.reverb, 0.75)
+        XCTAssertEqual(reverbed.deckStates(elapsed: 5).incoming, untouched)
 
         // Filter blend: the outgoing song keeps what is below a falling cutoff, the next one what is above it.
         let blend = plan(.filterBlend, rate: 1.04)
