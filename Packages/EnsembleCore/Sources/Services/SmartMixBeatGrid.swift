@@ -76,7 +76,7 @@ public struct SmartMixBeatGrid: Equatable, Sendable, Codable {
     static func trackBeats(_ flux: [Float], period: Double, tightness: Double) -> [Int] {
         let count = flux.count
         guard period >= 2, count > Int(2 * period) else { return [] }
-        let std = Double(vDSP.standardDeviation(flux))
+        let std = Double(standardDeviation(flux))
         let scale = Float(1 / (std + 1e-9))
 
         let reach = Int(period)
@@ -227,7 +227,7 @@ public struct SmartMixBeatGrid: Equatable, Sendable, Codable {
         var totals = [Double](repeating: 0, count: beatsPerBar)
         for change in changes {
             let mean = vDSP.mean(change)
-            let scale = 1 / (Double(vDSP.standardDeviation(change)) + 1e-9)
+            let scale = 1 / (Double(standardDeviation(change)) + 1e-9)
             for phase in 0 ..< beatsPerBar {
                 let members = stride(from: phase, to: count, by: beatsPerBar).map { Double(change[$0] - mean) * scale }
                 totals[phase] += members.reduce(0, +) / Double(max(1, members.count))
@@ -235,5 +235,12 @@ public struct SmartMixBeatGrid: Equatable, Sendable, Codable {
         }
         let ranked = totals.indices.sorted { totals[$0] > totals[$1] }
         return (ranked[0], totals[ranked[0]] - totals[ranked[1]])
+    }
+
+    /// `vDSP.standardDeviation` needs iOS 18; this is the same population figure.
+    private static func standardDeviation(_ values: [Float]) -> Float {
+        guard !values.isEmpty else { return 0 }
+        let mean = vDSP.mean(values)
+        return max(0, vDSP.meanSquare(values) - mean * mean).squareRoot()
     }
 }
