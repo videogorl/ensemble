@@ -1168,3 +1168,14 @@ to the plan log (log `$TMPDIR/smartmix-16pro/se-pop-run.log`). Plans only; no tr
   and the eighth has tempos more than 8% apart; the harmonic pair passes on beats and tempo but the new song
   sings from 0.2 s. All nine have singing within 16 s of the new song's start (Apple enters the new song
   later, SmartMix from the top).
+
+Third iPhone SE run on 2026-11-18 with the genre gate removed (genre now only picks the Pop styles; log
+`$TMPDIR/smartmix-16pro/se-anygenre-run.log`). Log evidence only; nothing was heard.
+
+- 10034 then 11762 (half·alive "I'll Stop" into Magdalena Bay "You Lose!", genres none and Electronic), seek 160:
+  `style=filterBlend overlap=16.4s outgoingStart=175.31s outgoingEndRate=1.041`; started, promoted and handed
+  off at position 16.2 s. Apple plays this pair as a 2.1 s gapless join.
+- 14516 then 11713 (Chappell Roan into Paramore, both `Pop/Rock`): plans `filterBlend`, 15.4 s. Apple uses a
+  2.7 s cross-fade with reverb.
+- 7827 then 8977 (Owl City into The Postal Service): plans `filterBlend`, 14.7 s, as Apple does.
+- Owed by ear: whether the first two, which Apple chooses not to beat-match, sound right blended.

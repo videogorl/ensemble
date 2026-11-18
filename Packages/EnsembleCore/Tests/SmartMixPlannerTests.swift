@@ -287,14 +287,14 @@ final class SmartMixPlannerTests: XCTestCase {
         XCTAssertNil(SmartMixLoudness.bodyStart(curve { $0 < 12 ? -22 : -12 }))
     }
 
-    func testBeatBlendIsForDanceableGenresAndPopStylesForPop() {
+    func testGenreOnlyPicksThePopStyles() {
         let cases: [([String], [String], SmartMixGenreMatch)] = [
             (["Electronic", "Rock"], ["Synth-pop"], .beatMatched),
             (["Hip-Hop/Rap"], ["R&B"], .beatMatched),
             (["Pop"], ["K-POP"], .pop),
             (["Indie Pop"], ["Pop"], .beatMatched),
-            (["Rock", "Electronic"], ["Pop"], .unsuited),
-            (["Pop"], [], .unsuited),
+            (["Rock", "Electronic"], ["Pop"], .beatMatched),
+            (["Pop"], [], .beatMatched),
         ]
         for (outgoing, incoming, match) in cases {
             XCTAssertEqual(SmartMixPlanner.genreMatch(outgoing: outgoing, incoming: incoming), match, "\(outgoing) \(incoming)")

@@ -335,17 +335,13 @@ public enum SmartMixPlanner {
         currentTime + tolerance >= plan.outgoingStartTime
     }
 
-    /// Genres a beat-matched blend suits, after Apple's list: electronic, dance, pop, hip-hop, R&B,
-    /// country, reggae and world music, but not rock, alternative, jazz or classical. Only the first genre counts.
-    /// The Pop styles need both first genres to be plain Pop (or K-Pop), as in Apple's logs: Indie Pop and
-    /// Synthpop pairs get the filter blend.
+    /// Genre does not decide whether two songs blend: a Plex library's genres are too coarse ("Pop/Rock" on most
+    /// songs) to stand in for Apple's genre list, so the audio decides. Genre only picks the Pop styles, which
+    /// need both first genres to be plain Pop (or K-Pop), as in Apple's logs.
     public static func genreMatch(outgoing: [String], incoming: [String]) -> SmartMixGenreMatch {
-        let suited = ["electro", "dance", "house", "techno", "trance", "disco", "synth", "edm", "dubstep", "drum", "garage",
-                      "pop", "hip hop", "hip-hop", "rap", "r&b", "soul", "funk", "reggae", "country", "latin", "world"]
-        let mains = [outgoing, incoming].map { $0.first?.lowercased() ?? "" }
-        guard mains.allSatisfy({ main in suited.contains { main.contains($0) } }) else { return .unsuited }
         let pop: Set = ["pop", "k-pop", "kpop"]
-        return mains.allSatisfy { pop.contains($0.trimmingCharacters(in: .whitespaces)) } ? .pop : .beatMatched
+        let mains = [outgoing, incoming].map { $0.first?.lowercased().trimmingCharacters(in: .whitespaces) ?? "" }
+        return mains.allSatisfy(pop.contains) ? .pop : .beatMatched
     }
 
     /// Whether the two songs' keys are known to go together. Apple never refuses a blend over key; it only keeps

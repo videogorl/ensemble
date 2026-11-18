@@ -338,3 +338,10 @@ those have only been exercised by unit tests.
   genres.
 - Whether the iPhone plans the same transitions as the Mac.
 - Same song into many others, and reversed pairs.
+
+## Genre no longer gates the blend (2026-11-18)
+
+On the phone the library's first genre turned out to be `Pop/Rock` on 12 of 18 songs checked and missing on 4, so
+it cannot stand in for Apple's genre list. Genre now only picks the Pop styles (both first genres plain Pop or
+K-Pop); whether two songs blend is decided by the audio alone. On the 534 lab pairs this takes the blends from 2
+to 4; the two added pairs are ones Apple does not beat-match (see the device backlog).
