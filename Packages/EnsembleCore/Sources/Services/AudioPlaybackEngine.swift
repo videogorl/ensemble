@@ -1425,7 +1425,13 @@ public final class AudioPlaybackEngine {
 
         let incomingRate = file.processingFormat.sampleRate
         let (contentStart, contentFrames) = Self.readContentBounds(for: fileURL, fileLength: file.length)
-        let incomingStartFrame = contentStart + AVAudioFramePosition(plan.incomingStartTime * incomingRate)
+        // The caller starts the overlap a little early or late. Early, the incoming song waits for the
+        // planned moment. Late, a beat-matched blend joins as far in as the outgoing song already is, so
+        // the beats still meet; other styles simply start now, from the incoming song's planned start.
+        let lead = plan.outgoingStartTime - currentTime()
+        let startDelay = min(max(0, lead), 1)
+        let elapsedAtStart = plan.style == .filterBlend ? min(max(0, -lead), 2) : 0
+        let incomingStartFrame = contentStart + AVAudioFramePosition(plan.incomingPosition(elapsed: elapsedAtStart) * incomingRate)
         let contentEnd = contentStart + AVAudioFramePosition(contentFrames)
         guard incomingStartFrame < contentEnd else {
             try scheduleNext(fileURL: fileURL, trackId: trackId)
@@ -1444,7 +1450,7 @@ public final class AudioPlaybackEngine {
 
         resetSmartMixEffects()
         incomingPlayer.stop()
-        let opening = plan.deckStates(elapsed: 0)
+        let opening = plan.deckStates(elapsed: elapsedAtStart)
         apply(opening.outgoing, to: outgoingDeck)
         apply(opening.incoming, to: incomingDeck)
 
@@ -1464,7 +1470,8 @@ public final class AudioPlaybackEngine {
             applyIsolationParameters()
         }
 
-        incomingPlayer.play()
+        let startsAt = CACurrentMediaTime() + startDelay
+        incomingPlayer.play(at: AVAudioTime(hostTime: AVAudioTime.hostTime(forSeconds: startsAt)))
         smartMixTransition = SmartMixEngineTransition(
             file: file,
             trackId: trackId,
@@ -1476,7 +1483,7 @@ public final class AudioPlaybackEngine {
             duration: Double(contentFrames) / incomingRate,
             plan: plan,
             generation: myGeneration,
-            startedAtWallTime: CACurrentMediaTime()
+            startedAtWallTime: startsAt - elapsedAtStart
         )
         onSmartMixTransitionActiveChanged?(true, playbackRequestGeneration)
         startSmartMixFadeTimer()
@@ -1487,6 +1494,7 @@ public final class AudioPlaybackEngine {
             + " transition=\(String(format: "%.1f", plan.transitionDuration))s"
             + " incomingStart=\(String(format: "%.1f", plan.incomingStartTime))s"
             + " outgoingEndRate=\(String(format: "%.3f", plan.outgoingEndRate))"
+            + " lead=\(String(format: "%.3f", lead))s"
             + " outgoingDeck=\(outgoingDeck.rawValue)"
             + " incomingDeck=\(incomingDeck.rawValue)"
         )

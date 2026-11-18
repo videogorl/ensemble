@@ -377,6 +377,25 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
   or vocal-clash check before a beat-matched blend, no bar lines, and the blend always starts the next song at
   its first sound where Apple often enters later.
 
+## Confirmed: SmartMix analysis waits for startup sync, about 2.5 minutes on the iPhone 16 Pro (2026-11-17)
+
+- Evidence: session log `$TMPDIR/smartmix-16pro/phone-gapless.log`. "Starting startup sync..." at 16:49:47,
+  "Startup sync complete" at 16:52:19; the SmartMix plan for the queued next song appeared 1.2 s after that,
+  with both files already local. `SmartMixAnalysisService` asks `ForegroundWorkScheduler` for `.playbackSafe`
+  work, which waits while `startupSyncInFlight`. A song that ended before the sync finished advanced with no
+  SmartMix transition.
+- Impact: no SmartMix for any song change in the first minutes after a cold launch on a large library.
+- Next step: decide whether SmartMix analysis (about 0.1 s of CPU per song in a release build) should wait
+  for startup sync at all, or why the sync takes this long with nothing changed.
+
+## Suspected: XCUITest cannot start on the iPhone 16 Pro (2026-11-17)
+
+- Evidence: `PhonePlaybackAcceptanceUITests/testG3i_SmartMixCarriesIntoNextTrack` failed twice before running
+  with "Timed out while enabling automation mode" (`$TMPDIR/smartmix-16pro/run1.log`, `run2.log`); the phone
+  was unlocked. The failed run also did not install the app under test. The method itself has not run.
+- Impact: scripted phone tests cannot run on this phone; checks fall back to debug links and the session log.
+- Next step: check Settings > Developer > Enable UI Automation on the phone, then rerun the method.
+
 ## Pre-existing, weigh later: streaming tracks have no sample-gapless or file-backed SmartMix handoff (2026-11-10)
 
 - Evidence (reviewer's boundary notes, from reading the code): an uncached streaming track ends through a cached-file reload rather than a sample-gapless handoff (`AudioPlaybackEngine.swift:2392`), and a streaming outgoing track has no file-backed SmartMix crossfade path (`AudioPlaybackEngine.swift:1426`). Serializing direct downloads (one per server) can delay the successor's download further on a short track or a slow link, so more boundaries take this path.

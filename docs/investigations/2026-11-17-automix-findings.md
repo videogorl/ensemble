@@ -168,7 +168,7 @@ Read from the planner's code (Ghidra, addresses in the lab notes outside the rep
 ## What SmartMix does with this
 
 Apple's loudness curve turns out to be the plain RMS level of the mono mix in dB, one value per half second:
-computed from the Plex files of 560 shared songs it matches Apple's values with a median difference of 0.03 dB
+computed from the Plex files of songs in both libraries (about 40,000 half-second samples) it matches Apple's values with a median difference of 0.03 dB
 (correlation 0.95). Apple's thresholds therefore apply to any audio file directly, with no server data.
 
 `SmartMixPlanner` tries, in Apple's order:

@@ -1069,7 +1069,21 @@ check ran before the drop-target change was added. A pin dropped on the search f
 
 ## SmartMix styles (2026-11-17)
 
-Listening checks owed on the iPhone and the Mac (SmartMix on, songs from different albums):
+Run on the iPhone 16 Pro (iOS 27, Debug build from `docs/plan-automix-reverse-engineering`, debug links over
+`devicectl`, judged from the session log, not by ear). Each pair planned the same style and timings as the
+offline harness, started on the planned moment of the outgoing song, advanced the queue at the midpoint and
+carried on in the next song at the expected position:
+
+| Style | Queue (rating keys) | Seek to | Logged |
+|---|---|---|---|
+| gapless | 7278, 7631 | 335 | 2.0 s overlap, next song from 0.1 s |
+| ease-in | 15271, 10126 | 200 | 9.5 s overlap, next song from 4.4 s |
+| overlap | 13445, 6163 | 168 | 9.0 s overlap, next song from 0 s |
+| filter blend | 8987, 8966 | 255 | 15.4 s, outgoing speed to 1.076, next song at 14.9 s when it ends |
+
+Logs: `$TMPDIR/smartmix-16pro/phone-*.log` and `phone2-*.log`. macOS was not run.
+
+Listening checks still owed on the iPhone and the Mac (SmartMix on, songs from different albums):
 
 - Cold ending into any song: the next song starts at full level from its first sound, about 1 s before the end.
 - A song that dies away into a song with no intro: the next song starts once the tail is quiet; no silence, no
