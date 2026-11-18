@@ -377,6 +377,17 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
   or vocal-clash check before a beat-matched blend, no bar lines, and the blend always starts the next song at
   its first sound where Apple often enters later.
 
+## Suspected: AVAudioFile stops early on one FLAC, and 13 files report more frames than they decode (2026-11-18)
+
+- Evidence (offline, on the Mac, while scoring SmartMix vocal detection over about 320 library files):
+  `AVAudioFile` returns an end-of-file error at 158.5 s of 216 s for alt-J "Every Other Freckle" (FLAC);
+  ffmpeg decodes the whole file. Thirteen other files report slightly more frames in `length` than can be
+  read, so the final read fails.
+- Impact: unknown in the app. If the engine reads that FLAC the same way the song could end a minute early;
+  for the thirteen, any code that trusts `file.length` for the last read may see an error at the end.
+- Next step: play "Every Other Freckle" to its end in the app from a downloaded file and read the log; if it
+  cuts off, check how the engine handles a short read.
+
 ## Suspected: XCUITest cannot start on the iPhone 16 Pro (2026-11-17)
 
 - Evidence: `PhonePlaybackAcceptanceUITests/testG3i_SmartMixCarriesIntoNextTrack` failed twice before running

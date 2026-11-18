@@ -236,6 +236,54 @@ Mac: 0.31 s to decode a four-minute song and 0.035 s to analyse it.
 The existing 30 s tempo estimate places its beat about 50 ms late against Apple's beats. Both songs of a blend
 carry the same error, so it cancels in the alignment.
 
+## On-device analysis, stage 2: key (2026-11-18)
+
+Apple's rule, from 39 traced verdicts ("Tonalities are compatible"): the two songs' main keys must be the same
+or the same mode a fifth apart (all 33 clean verdicts reproduced; no relative major/minor pair occurred, so
+that case is unconfirmed). A clash is waived when a song's main melodicness is low (0.15 passed, 0.30 did not).
+
+`SmartMixKey` (not used by playback yet) folds a whitened, log-compressed spectrum (110 Hz to 1.76 kHz) of the
+beat grid's 11 kHz signal into pitch classes and matches the Albrecht-Shanahan key profiles, for the whole
+song and for its first and last 45 s. Against Apple's keys for 315 songs (all settings tuned on these songs;
+alternate halves scored 84.2% and 84.1%):
+
+| Window | Same key | Same, relative or a fifth away |
+|---|---|---|
+| Whole song | 85% | 97% |
+| First 45 s | 86% | 96% |
+| Last 45 s | 82% | 93% |
+
+Confidence is the margin over the second-best key; at 0.10 it keeps about two thirds of keys and those match
+Apple's 91 to 95% of the time. For the decision SmartMix needs (does the outgoing ending clash with the
+incoming opening), over 413 pairs Apple planned: calling a pair compatible only when both keys are trusted
+gives 26 compatible pairs, none of which clash by Apple's keys, and finds 26 of the 70 pairs Apple's keys
+call compatible. Without the gate 7 of 67 "compatible" answers clash by Apple's keys. Cost: 9 ms per song on
+the Mac, on the signal the beat grid already has.
+
+## On-device analysis, stage 3: vocals (2026-11-18)
+
+Apple's rule, from the traces ("Leading incoming vocal activity is significant", checked per candidate landing
+point): any `vocalActivity` segment of strength `medium` or more between the start of the incoming song and
+the landing point (156 of 161 distinct cases reproduced). `strength` behaves like a confidence, not a level.
+No rule for the outgoing song's ending was found.
+
+`SmartMixVocals` (not used by playback yet) runs the system sound classifier (SoundAnalysis, version 1) in 3 s
+windows every 1.5 s and takes the highest score among its voice classes (singing, rapping, choir, humming,
+speech and similar); 0.2 or more in any window of a stretch counts as vocals. Against Apple for 308 songs
+(threshold, windows and class list tuned on these songs):
+
+| Stretch | Precision | Recall | "No vocals" wrong |
+|---|---|---|---|
+| First 30 s | 0.95 | 0.97 | 7 of 44 |
+| Last 30 s before the fade | 0.93 | 0.98 | 6 of 43 |
+| First 16 s | 0.92 | 0.96 | 7 of 114 |
+| Last 16 s before the fade | 0.91 | 0.96 | 8 of 78 |
+
+Analysing only 45 s at each end gives the same answers as the whole song (1,213 of 1,232). Cost on the Mac:
+about 0.2 s per 45 s window, 45 MB peak; not measured on a phone. Misses are short vocal samples in
+electronic tracks. The sound-isolation audio unit the app already uses was no better (first 30 s: 13 of 44
+"no vocals" wrong), costs six times more and is not on the watch; a plain signal heuristic was much worse.
+
 ## Answers so far to the four questions
 
 - Same genre: mostly Dead-Air Removal like everything else; beat-matching appears for danceable genres.
