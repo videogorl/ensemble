@@ -1063,18 +1063,24 @@ extension PlaybackService {
                     incomingDuration: smartMixContext.incomingDuration,
                     outgoingAnalysis: outgoingAnalysis,
                     incomingAnalysis: incomingAnalysis,
-                    beatBlendAllowed: tempoGate.allowed
-                        && SmartMixPlanner.genresSuitBeatBlend(outgoing: currentTrack.genres, incoming: track.genres)
+                    blendGenres: tempoGate.allowed
+                        ? SmartMixPlanner.genreMatch(outgoing: currentTrack.genres, incoming: track.genres)
+                        : .unsuited
                 ) {
+                    let keys = SmartMixPlanner.keysCompatible(outgoing: outgoingAnalysis, incoming: incomingAnalysis)
                     EnsembleLogger.debug(
                         "[SmartMix] Planned style=\(plan.style.rawValue)"
                         + " reverb=\(plan.outgoingReverb)"
                         + " overlap=\(String(format: "%.1f", plan.transitionDuration))s"
-                        + " incomingStart=\(String(format: "%.1f", plan.incomingStartTime))s"
-                        + " outgoingBPM=\(String(format: "%.1f", outgoingAnalysis.outroTempo.estimatedBPM ?? 0))"
-                        + " outgoingConfidence=\(String(format: "%.2f", outgoingAnalysis.outroTempo.confidence))"
-                        + " incomingBPM=\(String(format: "%.1f", incomingAnalysis.introTempo.estimatedBPM ?? 0))"
-                        + " incomingConfidence=\(String(format: "%.2f", incomingAnalysis.introTempo.confidence))"
+                        + " outgoingStart=\(String(format: "%.2f", plan.outgoingStartTime))s"
+                        + " incomingStart=\(String(format: "%.2f", plan.incomingStartTime))s"
+                        + " outgoingEndRate=\(String(format: "%.3f", plan.outgoingEndRate))"
+                        + " outgoingBPM=\(String(format: "%.1f", outgoingAnalysis.beatGrid?.bpm ?? 0))"
+                        + " outgoingGrid=\(String(format: "%.2f", outgoingAnalysis.beatGrid?.confidence ?? 0))"
+                        + " incomingBPM=\(String(format: "%.1f", incomingAnalysis.beatGrid?.bpm ?? 0))"
+                        + " incomingGrid=\(String(format: "%.2f", incomingAnalysis.beatGrid?.confidence ?? 0))"
+                        + " keys=\(keys.map { $0 ? "compatible" : "clash" } ?? "unknown")"
+                        + " incomingVocals=\(incomingAnalysis.openingHasVocals.map { $0 ? "yes" : "no" } ?? "unknown")"
                         + " tempoGate=\(tempoGate.reason ?? "open")"
                     )
                     guard SmartMixPlanner.shouldStartTransition(

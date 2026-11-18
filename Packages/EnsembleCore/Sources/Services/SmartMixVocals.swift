@@ -6,8 +6,8 @@ import SoundAnalysis
 /// Where singing, rapping or speech is in a stretch of a song, from decoded audio alone.
 ///
 /// Runs Apple's built-in sound classifier (`SNClassifierIdentifier.version1`) over the stretch and scores
-/// each analysis window by its most confident vocal class. Ask `hasVocals` for SmartMix's two questions:
-/// is there a vocal in the opening stretch a blend would use, and in the closing stretch.
+/// each analysis window by its most confident vocal class. Ask `hasVocals` whether the opening stretch a blend
+/// would land in has a vocal. Synchronous, so the caller's one-file-at-a-time analysis stays one file at a time.
 public struct SmartMixVocals: Equatable, Sendable {
     /// The classifier's vocal classes, as named in `SNClassifySoundRequest.knownClassifications`.
     public static let vocalClasses = [
@@ -42,7 +42,7 @@ public struct SmartMixVocals: Equatable, Sendable {
     }
 
     /// Classifies `range` of the file at `url`; the range is clamped to the file.
-    public static func analyze(url: URL, range: Range<TimeInterval>) async throws -> SmartMixVocals {
+    public static func analyze(url: URL, range: Range<TimeInterval>) throws -> SmartMixVocals {
         let file = try AVAudioFile(forReading: url)
         let format = file.processingFormat
         let rate = format.sampleRate

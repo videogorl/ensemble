@@ -1111,3 +1111,20 @@ Still owed:
   for a few seconds under the new song, with no reverb on the new song and none left over at the following
   song change. Ordinary and gapless album playback should sound as before (each deck now has a bypassed reverb
   after its filters).
+
+## SmartMix analysis from the beat grid, Pop styles (2026-11-18)
+
+Uncommitted on `docs/plan-automix-reverse-engineering` when written: the analysis now keeps a whole-song beat grid,
+keys and opening vocals, saved per file under Caches `SmartMixAnalysis/`; beat-matched blends use the grids; two
+Pop styles (echo, reverb) with a new echo unit on each deck. Checked only by unit tests and the offline harness
+(no build of the app, no device, nothing heard). Owed on the iPhone and the Mac:
+
+- Every song change still plans and plays as before for gapless, overlap and ease-in, with the echo unit
+  bypassed in each deck's path: no change in level or tone in ordinary playback.
+- The second play of a song plans from the saved analysis (no new analysis in the log); a re-downloaded file is
+  analysed again.
+- A Pop-into-Pop pair that logs `style=popEcho`: the old song stops on a beat and its last beat repeats a few
+  times, fading out within about two beats as the new song rises, with no click at the cut and no echo left at
+  the next song change. Same for `style=popReverb`: the old song is filtered away into reverb with no tail left
+  over. The offline harness found no such pair in the 534 it plans (see the change's report), so a pair may have
+  to be built from songs whose grids, keys and openings pass.

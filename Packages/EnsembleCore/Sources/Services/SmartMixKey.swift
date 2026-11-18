@@ -5,8 +5,8 @@ import Foundation
 ///
 /// Pitch-class energy from 110 Hz to 1.76 kHz (log-compressed, whitened across semitones) is matched against
 /// Albrecht and Shanahan's major and minor key profiles. Trust a key only when `isTrusted`.
-public struct SmartMixKey: Equatable, Sendable {
-    public enum Mode: String, Sendable { case major, minor }
+public struct SmartMixKey: Equatable, Sendable, Codable {
+    public enum Mode: String, Sendable, Codable { case major, minor }
 
     /// Against Apple Music's keys, about two in three song openings, endings and whole songs reach this,
     /// and 91-95% of those match Apple's key exactly.
@@ -22,7 +22,7 @@ public struct SmartMixKey: Equatable, Sendable {
 
     /// Whether mixing into `other` would clash under the harmonic-mixing (Camelot) rule: compatible keys are
     /// the same key, the relative major or minor, or the same mode a fifth up or down. Confidence is not
-    /// considered; treat an untrusted key as unknown.
+    /// considered.
     public func clashes(with other: SmartMixKey) -> Bool {
         if mode == other.mode {
             return ![0, 5, 7].contains((other.tonic - tonic + 12) % 12)
@@ -34,7 +34,7 @@ public struct SmartMixKey: Equatable, Sendable {
 }
 
 /// The keys of a song's opening, whole and ending, as Apple Music's analysis reports them.
-public struct SmartMixKeys: Equatable, Sendable {
+public struct SmartMixKeys: Equatable, Sendable, Codable {
     /// Opening and ending keys cover this much sounding audio; it best reproduces Apple's beginning and ending keys.
     public static let edgeDuration: TimeInterval = 45
 

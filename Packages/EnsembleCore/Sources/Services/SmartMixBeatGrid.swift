@@ -6,10 +6,11 @@ import Foundation
 /// Beats come from dynamic-programming beat tracking (Ellis 2007) over `SmartMixTempoEstimator`'s onset
 /// curve at its whole-song tempo. Bars are four beats long; the first bar line is the beat phase where
 /// harmony, timbre and bass change most. Use the grid only when `isTrusted`.
-public struct SmartMixBeatGrid: Equatable, Sendable {
+public struct SmartMixBeatGrid: Equatable, Sendable, Codable {
     public static let beatsPerBar = 4
-    /// Against Apple Music's grids, about 30% of songs reach this and 85% of those match Apple's beats.
-    public static let trustedConfidence = 0.7
+    /// Against Apple Music's grids, about 30% of songs reach 0.7 and 85% of those match Apple's beats; SmartMix
+    /// blends on the looser 0.6.
+    public static let trustedConfidence = 0.6
     public static let trustedBarConfidence = 0.5
 
     public let beatTimes: [TimeInterval]
@@ -23,6 +24,11 @@ public struct SmartMixBeatGrid: Equatable, Sendable {
 
     public var isTrusted: Bool { confidence >= Self.trustedConfidence }
     public var hasTrustedBars: Bool { isTrusted && barConfidence >= Self.trustedBarConfidence }
+
+    /// Whether beat `index` starts a bar.
+    public func isDownbeat(_ index: Int) -> Bool {
+        index >= firstDownbeatIndex && (index - firstDownbeatIndex) % Self.beatsPerBar == 0
+    }
 
     public var downbeatTimes: [TimeInterval] {
         stride(from: firstDownbeatIndex, to: beatTimes.count, by: Self.beatsPerBar).map { beatTimes[$0] }

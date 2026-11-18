@@ -14,8 +14,8 @@ import QuartzCore
 ///
 /// Audio graph (isolation disabled):
 /// ```
-/// primary deck: file/stream -> primarySourceMixer -> primaryTimePitch -> primaryDeckEQ -> primaryDeckReverb -> deckMixer -> mainMixer -> output
-/// SmartMix deck: smartMixPlayerNode -> incomingTimePitch -> smartMixDeckEQ -> smartMixDeckReverb -> deckMixer -> mainMixer -> output
+/// primary deck: file/stream -> primarySourceMixer -> primaryTimePitch -> primaryDeckEQ -> primaryDeckDelay -> primaryDeckReverb -> deckMixer -> mainMixer -> output
+/// SmartMix deck: smartMixPlayerNode -> incomingTimePitch -> smartMixDeckEQ -> smartMixDeckDelay -> smartMixDeckReverb -> deckMixer -> mainMixer -> output
 /// ```
 ///
 /// Audio graph (isolation enabled):
@@ -44,6 +44,12 @@ public final class AudioPlaybackEngine {
     /// Band 0 is a high-pass and band 1 a low-pass; both stay bypassed outside a filtered SmartMix blend.
     private let primaryDeckEQ = AVAudioUnitEQ(numberOfBands: 2)
     private let smartMixDeckEQ = AVAudioUnitEQ(numberOfBands: 2)
+    /// Bypassed except while a SmartMix Pop blend leaves the outgoing song's last beat repeating.
+    private let primaryDeckDelay = AVAudioUnitDelay()
+    private let smartMixDeckDelay = AVAudioUnitDelay()
+    /// Apple's echo (style 16): each repeat 60% of the last, through a 3.5 kHz low-pass.
+    private static let echoFeedback: Float = 60
+    private static let echoLowPassCutoff: Float = 3_500
     /// Bypassed except while a SmartMix overlap lets a short ending ring out through it.
     private let primaryDeckReverb = AVAudioUnitReverb()
     private let smartMixDeckReverb = AVAudioUnitReverb()
@@ -262,6 +268,8 @@ public final class AudioPlaybackEngine {
         engine.attach(primarySourceMixer)
         engine.attach(primaryDeckEQ)
         engine.attach(smartMixDeckEQ)
+        engine.attach(primaryDeckDelay)
+        engine.attach(smartMixDeckDelay)
         engine.attach(primaryDeckReverb)
         engine.attach(smartMixDeckReverb)
         engine.attach(primaryTimePitch)
@@ -285,11 +293,13 @@ public final class AudioPlaybackEngine {
         engine.connect(playerNode, to: primarySourceMixer, format: processingFormat)
         engine.connect(primarySourceMixer, to: primaryTimePitch, format: processingFormat)
         engine.connect(primaryTimePitch, to: primaryDeckEQ, format: processingFormat)
-        engine.connect(primaryDeckEQ, to: primaryDeckReverb, format: processingFormat)
+        engine.connect(primaryDeckEQ, to: primaryDeckDelay, format: processingFormat)
+        engine.connect(primaryDeckDelay, to: primaryDeckReverb, format: processingFormat)
         engine.connect(primaryDeckReverb, to: deckMixer, format: processingFormat)
         engine.connect(smartMixPlayerNode, to: incomingTimePitch, format: processingFormat)
         engine.connect(incomingTimePitch, to: smartMixDeckEQ, format: processingFormat)
-        engine.connect(smartMixDeckEQ, to: smartMixDeckReverb, format: processingFormat)
+        engine.connect(smartMixDeckEQ, to: smartMixDeckDelay, format: processingFormat)
+        engine.connect(smartMixDeckDelay, to: smartMixDeckReverb, format: processingFormat)
         engine.connect(smartMixDeckReverb, to: deckMixer, format: processingFormat)
         engine.connect(deckMixer, to: mainMixer, format: processingFormat)
         recordDownstreamGraphMutation(reason: "initialSetup")
@@ -325,6 +335,9 @@ public final class AudioPlaybackEngine {
     private func configureSmartMixEffectDefaults() {
         primaryDeckReverb.loadFactoryPreset(.cathedral)
         smartMixDeckReverb.loadFactoryPreset(.cathedral)
+        for delay in [primaryDeckDelay, smartMixDeckDelay] {
+            delay.lowPassCutoff = Self.echoLowPassCutoff
+        }
         resetSmartMixEffects()
     }
 
@@ -341,7 +354,13 @@ public final class AudioPlaybackEngine {
         reverb.bypass = true
     }
 
-    /// Applies one deck's share of a SmartMix overlap: level, speed and filter cutoffs.
+    private func resetDelay(for deck: PlaybackDeck) {
+        let delay = deckDelay(for: deck)
+        delay.wetDryMix = 0
+        delay.bypass = true
+    }
+
+    /// Applies one deck's share of a SmartMix overlap: level, speed, filter cutoffs, echo and reverb.
     private func apply(_ state: SmartMixDeckState, to deck: PlaybackDeck) {
         setVolume(state.gain, for: deck)
         timePitchNode(for: deck).rate = state.rate
@@ -350,10 +369,18 @@ public final class AudioPlaybackEngine {
             band.bypass = cutoff == nil
             if let cutoff { band.frequency = min(max(20, cutoff), highestCutoff) }
         }
-        // The reverb sits in the song's path, so a send level becomes a wet share of the mix.
+        // The echo and reverb sit in the song's path, so a send level becomes a wet share of the mix. Nothing
+        // follows them but the shared mixer, so where Apple fades the deck after its effects, their wet share
+        // (and the echo's feedback) fades instead; the dry song is faded by `gain`, before them.
+        let delay = deckDelay(for: deck)
+        delay.bypass = state.echo <= 0
+        delay.wetDryMix = 100 * state.echo / (1 + state.echo) * state.effectLevel
+        delay.feedback = Self.echoFeedback * state.effectLevel
+        let delayTime = min(max(0, state.echoDelay), 2)
+        if state.echo > 0, delay.delayTime != delayTime { delay.delayTime = delayTime }
         let reverb = deckReverb(for: deck)
         reverb.bypass = state.reverb <= 0
-        reverb.wetDryMix = 100 * state.reverb / (1 + state.reverb)
+        reverb.wetDryMix = 100 * state.reverb / (1 + state.reverb) * state.effectLevel
     }
 
     private func resetTimePitch(for deck: PlaybackDeck) {
@@ -367,6 +394,7 @@ public final class AudioPlaybackEngine {
         for deck in [PlaybackDeck.primary, .smartMix] {
             resetFilters(for: deck)
             resetTimePitch(for: deck)
+            resetDelay(for: deck)
             if deck != tailDeck { resetReverb(for: deck) }
         }
         if let tailDeck {
@@ -429,6 +457,15 @@ public final class AudioPlaybackEngine {
         }
     }
 
+    private func deckDelay(for deck: PlaybackDeck) -> AVAudioUnitDelay {
+        switch deck {
+        case .primary:
+            return primaryDeckDelay
+        case .smartMix:
+            return smartMixDeckDelay
+        }
+    }
+
     private func deckReverb(for deck: PlaybackDeck) -> AVAudioUnitReverb {
         switch deck {
         case .primary:
@@ -448,6 +485,7 @@ public final class AudioPlaybackEngine {
         setVolume(0, for: inactiveDeck)
         resetTimePitch(for: inactiveDeck)
         resetFilters(for: inactiveDeck)
+        resetDelay(for: inactiveDeck)
         resetReverb(for: inactiveDeck)
     }
 
@@ -1468,7 +1506,7 @@ public final class AudioPlaybackEngine {
         // the beats still meet; other styles simply start now, from the incoming song's planned start.
         let lead = plan.outgoingStartTime - currentTime()
         let startDelay = min(max(0, lead), 1)
-        let elapsedAtStart = plan.style == .filterBlend ? min(max(0, -lead), 2) : 0
+        let elapsedAtStart = plan.style.isBeatMatched ? min(max(0, -lead), 2) : 0
         let incomingStartFrame = contentStart + AVAudioFramePosition(plan.incomingPosition(elapsed: elapsedAtStart) * incomingRate)
         let contentEnd = contentStart + AVAudioFramePosition(contentFrames)
         guard incomingStartFrame < contentEnd else {
