@@ -1179,3 +1179,12 @@ Third iPhone SE run on 2026-11-18 with the genre gate removed (genre now only pi
   2.7 s cross-fade with reverb.
 - 7827 then 8977 (Owl City into The Postal Service): plans `filterBlend`, 14.7 s, as Apple does.
 - Owed by ear: whether the first two, which Apple chooses not to beat-match, sound right blended.
+
+Build 202611181356.5439 (limits lifted, long silent tails, saved-analysis clean-up) was installed on the iPhone
+16 Pro and the iPhone SE on 2026-11-18 and not run by the agent. Owed, by ear:
+
+- A blend with a large speed change, for example "Tell Me How" into "Crave" (Paramore, 111 into 131 BPM) or
+  "Come Here Boy" into "Satellite Mind": does a 18% stretch sound acceptable, and do the beats stay together?
+- A song with a long silent ending: the next song starts as the last sound dies, with no cut-off of anything audible.
+- Ordinary playback after the reverb and echo units went in: Felicity reported the effects "sounding GREAT" on
+  the 16 Pro on 2026-11-18.

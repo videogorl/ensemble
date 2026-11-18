@@ -345,3 +345,19 @@ On the phone the library's first genre turned out to be `Pop/Rock` on 12 of 18 s
 it cannot stand in for Apple's genre list. Genre now only picks the Pop styles (both first genres plain Pop or
 K-Pop); whether two songs blend is decided by the audio alone. On the 534 lab pairs this takes the blends from 2
 to 4; the two added pairs are ones Apple does not beat-match (see the device backlog).
+
+## Limits lifted at Felicity's request (2026-11-18)
+
+- Removed: the 8% speed limit (now Apple's 3:4 to 4:3), the loud-ending requirement (-15 dB) and the 30 s of each
+  song kept outside a blend. `outroLoudness` is no longer analysed; saved analyses are format 3.
+- On the 534 lab pairs: blends go from 4 to 20 (gapless 445, overlap 58, ease-in 11). Five are pairs Apple also
+  beat-matches; of the rest Apple plays 10 as Dead-Air Removal, 2 as Smart Cross-Fade, 1 as the fallback and 1 as
+  Beat-Matched Pop (one is a different master). Speed changes now reach 0.77 and 1.21; before, 0.92 to 1.08.
+  None of the larger ones has been heard. Apple's own beat-matched plans were seen changing speed by up to 7%
+  (13% on one Pop pair), each song meeting the other half way.
+- A silent tail longer than the gapless overlap is left out: the next song starts where the quiet ending
+  begins and the silence after it is not played. 44 of the 534 pairs start the next song earlier, by 1 to 18 s.
+  `trailingSilence` now also uses the 45 s loudness curve (below -55 dB), so tails over 15 s are seen.
+- Saved analyses not read or written for 90 days are deleted at launch; reading one marks it as used.
+- iPhone 16 Pro, from Felicity's session logs: 3 to 5 s from `[prefetch] Upcoming` to `[SmartMix] Planned` for a
+  song not analysed before (iPhone SE: 8 to 12 s).

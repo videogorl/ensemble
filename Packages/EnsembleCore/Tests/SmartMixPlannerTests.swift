@@ -38,6 +38,12 @@ final class SmartMixPlannerTests: XCTestCase {
             XCTAssertEqual(plan.outgoingEndRate, 1, "case \(index)")
         }
 
+        // A 40 s silent tail after 4 s of quiet: the next song starts as the quiet part begins, 44 s early.
+        let longTail = SmartMixAnalysis(leadingSilence: 0, trailingSilence: 40, analyzedDuration: 180, quietEnding: 44)
+        let plan = try XCTUnwrap(SmartMixPlanner.plan(outgoingDuration: 180, incomingDuration: 200, outgoingAnalysis: longTail, incomingAnalysis: incoming()))
+        XCTAssertEqual(plan.outgoingStartTime, 136, accuracy: 0.0001)
+        XCTAssertEqual(plan.transitionDuration, 10, accuracy: 0.0001)
+
         // A fade heard for five seconds or less gets reverb to carry it (Apple's styles 33 and 44).
         for (audible, reverb) in [(4.0, true), (5.5, false)] {
             let fading = SmartMixAnalysis(leadingSilence: 0, trailingSilence: 0, analyzedDuration: 180, fadeOutDuration: 7, fadeOutAudibleDuration: audible)
@@ -53,10 +59,10 @@ final class SmartMixPlannerTests: XCTestCase {
         let trustedC = SmartMixKey(tonic: 0, mode: .major, confidence: 0.3)
         let fSharpMajor = SmartMixKey(tonic: 6, mode: .major, confidence: 0.3)
         // 120 BPM ending into 123 BPM, both with bar lines.
-        func outgoing(confidence: Double = 0.9, bars: Double = 0.9, quiet: Double = 1, loudness: Float = -9, key: SmartMixKey? = cMajor) -> SmartMixAnalysis {
+        func outgoing(confidence: Double = 0.9, bars: Double = 0.9, quiet: Double = 1, key: SmartMixKey? = cMajor) -> SmartMixAnalysis {
             SmartMixAnalysis(
                 leadingSilence: 0, trailingSilence: 0, analyzedDuration: 180, quietEnding: quiet, fadeOutDuration: quiet > 10 ? nil : 6,
-                outroLoudness: loudness, beatGrid: grid(spacing: 0.5, start: 0.1, end: 180, confidence: confidence, barConfidence: bars, firstDownbeat: 1),
+                beatGrid: grid(spacing: 0.5, start: 0.1, end: 180, confidence: confidence, barConfidence: bars, firstDownbeat: 1),
                 keys: key.map { SmartMixKeys(opening: $0, main: $0, ending: $0) }
             )
         }
@@ -68,21 +74,20 @@ final class SmartMixPlannerTests: XCTestCase {
             )
         }
         // outgoing, incoming, genres -> style (a non-blend falls through to gapless)
-        let cases: [(SmartMixAnalysis, SmartMixAnalysis, SmartMixGenreMatch, SmartMixStyle)] = [
-            (outgoing(), incoming(), .beatMatched, .filterBlend),
-            (outgoing(), incoming(), .unsuited, .gapless),
+        let cases: [(SmartMixAnalysis, SmartMixAnalysis, SmartMixBlendStyles, SmartMixStyle)] = [
+            (outgoing(), incoming(), .filter, .filterBlend),
+            (outgoing(), incoming(), .none, .gapless),
             (outgoing(), incoming(), .pop, .popEcho),                                   // leaves on a bar line
             (outgoing(bars: 0.2), incoming(), .pop, .popReverb),                        // outgoing bar lines not trusted
-            (outgoing(), incoming(vocalFreeUntil: nil), .beatMatched, .filterBlend),            // unknown vocals do not block
-            (outgoing(), incoming(vocalFreeUntil: 12), .beatMatched, .gapless),        // singing before the blend lands
-            (outgoing(key: trustedC), incoming(), .beatMatched, .filterExpansion),      // both keys trusted and a fifth apart
-            (outgoing(key: trustedC), incoming(opening: fSharpMajor), .beatMatched, .filterBlend),  // a clash never blocks
-            (outgoing(key: nil), incoming(), .beatMatched, .filterBlend),               // key unknown
-            (outgoing(confidence: 0.55), incoming(), .beatMatched, .gapless),           // grid not trusted
+            (outgoing(), incoming(vocalFreeUntil: nil), .filter, .filterBlend),            // unknown vocals do not block
+            (outgoing(), incoming(vocalFreeUntil: 12), .filter, .gapless),        // singing before the blend lands
+            (outgoing(key: trustedC), incoming(), .filter, .filterExpansion),      // both keys trusted and a fifth apart
+            (outgoing(key: trustedC), incoming(opening: fSharpMajor), .filter, .filterBlend),  // a clash never blocks
+            (outgoing(key: nil), incoming(), .filter, .filterBlend),               // key unknown
+            (outgoing(confidence: 0.55), incoming(), .filter, .gapless),           // grid not trusted
             (outgoing(), incoming(confidence: 0.55), .pop, .gapless),
-            (outgoing(), incoming(spacing: 60 / 140.0), .beatMatched, .gapless),        // tempos too far apart
-            (outgoing(loudness: -20), incoming(), .beatMatched, .gapless),              // too quiet to blend
-            (outgoing(quiet: 20), incoming(), .beatMatched, .gapless),                  // too much ending to drop
+            (outgoing(), incoming(spacing: 60 / 170.0), .filter, .gapless),        // tempos too far apart
+            (outgoing(quiet: 20), incoming(), .filter, .gapless),                  // too much ending to drop
         ]
         for (index, (outgoingAnalysis, incomingAnalysis, genres, style)) in cases.enumerated() {
             let plan = try XCTUnwrap(SmartMixPlanner.plan(
@@ -90,7 +95,7 @@ final class SmartMixPlannerTests: XCTestCase {
                 incomingDuration: 200,
                 outgoingAnalysis: outgoingAnalysis,
                 incomingAnalysis: incomingAnalysis,
-                blendGenres: genres
+                blendStyles: genres
             ))
             XCTAssertEqual(plan.style, style, "case \(index)")
             guard style.isBeatMatched else { continue }
@@ -120,7 +125,7 @@ final class SmartMixPlannerTests: XCTestCase {
             outgoingDuration: 180,
             incomingDuration: 200,
             outgoingAnalysis: SmartMixAnalysis(
-                leadingSilence: 0, trailingSilence: 0, analyzedDuration: 180, quietEnding: 1, fadeOutDuration: 6, outroLoudness: -9,
+                leadingSilence: 0, trailingSilence: 0, analyzedDuration: 180, quietEnding: 1, fadeOutDuration: 6,
                 beatGrid: SmartMixBeatGrid(beatTimes: outgoingBeats, firstDownbeatIndex: 0, bpm: 110, confidence: 0.8, barConfidence: 0),
                 keys: SmartMixKeys(opening: key(0), main: key(0), ending: key(0))
             ),
@@ -129,7 +134,7 @@ final class SmartMixPlannerTests: XCTestCase {
                 beatGrid: grid(spacing: 60 / 61.5, start: 0.7, end: 200, confidence: 0.8, barConfidence: 0),
                 keys: SmartMixKeys(opening: key(0), main: key(0), ending: key(0))
             ),
-            blendGenres: .beatMatched
+            blendStyles: .filter
         ))
         let duration = 32 * 60 / 121.5
         XCTAssertEqual(plan.style, .filterExpansion)
@@ -288,16 +293,16 @@ final class SmartMixPlannerTests: XCTestCase {
     }
 
     func testGenreOnlyPicksThePopStyles() {
-        let cases: [([String], [String], SmartMixGenreMatch)] = [
-            (["Electronic", "Rock"], ["Synth-pop"], .beatMatched),
-            (["Hip-Hop/Rap"], ["R&B"], .beatMatched),
+        let cases: [([String], [String], SmartMixBlendStyles)] = [
+            (["Electronic", "Rock"], ["Synth-pop"], .filter),
+            (["Hip-Hop/Rap"], ["R&B"], .filter),
             (["Pop"], ["K-POP"], .pop),
-            (["Indie Pop"], ["Pop"], .beatMatched),
-            (["Rock", "Electronic"], ["Pop"], .beatMatched),
-            (["Pop"], [], .beatMatched),
+            (["Indie Pop"], ["Pop"], .filter),
+            (["Rock", "Electronic"], ["Pop"], .filter),
+            (["Pop"], [], .filter),
         ]
         for (outgoing, incoming, match) in cases {
-            XCTAssertEqual(SmartMixPlanner.genreMatch(outgoing: outgoing, incoming: incoming), match, "\(outgoing) \(incoming)")
+            XCTAssertEqual(SmartMixPlanner.blendStyles(outgoingGenres: outgoing, incomingGenres: incoming), match, "\(outgoing) \(incoming)")
         }
     }
 
@@ -305,7 +310,7 @@ final class SmartMixPlannerTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let analysis = SmartMixAnalysis(
-            leadingSilence: 0.2, trailingSilence: 1, analyzedDuration: 200, quietEnding: 3, fadeOutDuration: 6, outroLoudness: -9,
+            leadingSilence: 0.2, trailingSilence: 1, analyzedDuration: 200, quietEnding: 3, fadeOutDuration: 6,
             beatGrid: grid(spacing: 0.5, confidence: 0.8), keys: SmartMixKeys(opening: key(2), main: key(9), ending: key(4)), vocalFreeUntil: 31.5
         )
         let store = SmartMixAnalysisStore(directory: directory, version: 3)
@@ -314,6 +319,11 @@ final class SmartMixPlannerTests: XCTestCase {
         XCTAssertEqual(store.load(key: "track|1|2"), analysis)
         XCTAssertNil(store.load(key: "track|1|3"))
         XCTAssertNil(SmartMixAnalysisStore(directory: directory, version: 4).load(key: "track|1|2"))
+        store.removeUnused(now: Date().addingTimeInterval(89 * 24 * 3600))
+        XCTAssertNotNil(store.load(key: "track|1|2"))
+        store.removeUnused(now: Date().addingTimeInterval(91 * 24 * 3600))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.fileURL(key: "track|1|2").path))
+        store.save(analysis, key: "track|1|2")
         try Data("not a plist".utf8).write(to: store.fileURL(key: "track|1|2"))
         XCTAssertNil(store.load(key: "track|1|2"))
     }

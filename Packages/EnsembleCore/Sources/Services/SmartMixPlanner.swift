@@ -15,8 +15,6 @@ public struct SmartMixAnalysis: Equatable, Sendable, Codable {
     public let fadeOutAudibleDuration: TimeInterval?
     /// Where the first louder section starts when the track opens with a quieter intro.
     public let bodyStartTime: TimeInterval?
-    /// Average loudness of the opening and of the last full-level stretch, for the beat-matched blend.
-    public let outroLoudness: Float
     /// The whole song's beats and bar lines; nil when the audio gave none.
     public let beatGrid: SmartMixBeatGrid?
     public let keys: SmartMixKeys?
@@ -33,7 +31,6 @@ public struct SmartMixAnalysis: Equatable, Sendable, Codable {
         fadeOutDuration: TimeInterval? = nil,
         fadeOutAudibleDuration: TimeInterval? = nil,
         bodyStartTime: TimeInterval? = nil,
-        outroLoudness: Float = SmartMixLoudness.floor,
         beatGrid: SmartMixBeatGrid? = nil,
         keys: SmartMixKeys? = nil,
         vocalFreeUntil: TimeInterval? = nil
@@ -45,7 +42,6 @@ public struct SmartMixAnalysis: Equatable, Sendable, Codable {
         self.fadeOutDuration = fadeOutDuration
         self.fadeOutAudibleDuration = fadeOutAudibleDuration
         self.bodyStartTime = bodyStartTime
-        self.outroLoudness = outroLoudness
         self.beatGrid = beatGrid
         self.keys = keys
         self.vocalFreeUntil = vocalFreeUntil
@@ -232,10 +228,11 @@ public struct SmartMixPlan: Equatable, Sendable {
     }
 }
 
-/// Which beat-matched styles the two songs' genres allow.
-public enum SmartMixGenreMatch: Equatable, Sendable {
-    case unsuited
-    case beatMatched
+/// Which beat-matched styles a song change may use.
+public enum SmartMixBlendStyles: Equatable, Sendable {
+    /// None: the device is saving power or running hot.
+    case none
+    case filter
     /// Both songs are Pop: Apple's Pop styles instead of the filter blend.
     case pop
 }
@@ -254,23 +251,21 @@ public enum SmartMixPlanner {
     public static let transitionStartTolerance: TimeInterval = 0.35
 
     // Beat-matched blend.
-    public static let blendRateRange: ClosedRange<Double> = 0.92 ... 1.08
+    /// Apple's limit: tempos within 3:4 to 4:3 of each other, directly or at half or double.
+    public static let blendRateRange: ClosedRange<Double> = 0.75 ... 1 / 0.75
     /// Length of each beat-matched style in beats. Apple's Pop styles are about four bars; its style 16 is over
     /// by half way, so `popEcho` plans only that half.
     public static let blendBeats: Double = 32
     public static let popReverbBeats: Double = 16
     public static let popEchoBeats: Double = 8
-    public static let minimumBlendLoudness: Float = -15
     public static let maximumDroppedEnding: TimeInterval = 12
-    /// Each song keeps at least this much outside the blend.
-    public static let untouchedDuration: TimeInterval = 30
 
     public static func plan(
         outgoingDuration: TimeInterval,
         incomingDuration: TimeInterval,
         outgoingAnalysis: SmartMixAnalysis?,
         incomingAnalysis: SmartMixAnalysis?,
-        blendGenres: SmartMixGenreMatch = .unsuited
+        blendStyles: SmartMixBlendStyles = .none
     ) -> SmartMixPlan? {
         guard outgoingDuration.isFinite, incomingDuration.isFinite else { return nil }
         guard outgoingDuration >= minimumTrackDuration, incomingDuration >= minimumTrackDuration else { return nil }
@@ -303,8 +298,8 @@ public enum SmartMixPlanner {
         let silence = incomingAnalysis?.leadingSilence ?? 0
         let audibleStart = silence <= maximumSkippedSilence ? silence : 0
 
-        if blendGenres != .unsuited, let incoming = incomingAnalysis,
-           let blend = beatBlend(genres: blendGenres, outgoingDuration: outgoingDuration, incomingDuration: incomingDuration, outgoing: outgoing, incoming: incoming, incomingStart: audibleStart) {
+        if blendStyles != .none, let incoming = incomingAnalysis,
+           let blend = beatBlend(styles: blendStyles, outgoingDuration: outgoingDuration, incomingDuration: incomingDuration, outgoing: outgoing, incoming: incoming, incomingStart: audibleStart) {
             return plan(blend.style, duration: blend.duration, outgoingStart: blend.outgoingStart, incomingStart: blend.incomingStart, outgoingEndRate: blend.outgoingEndRate)
         }
 
@@ -323,8 +318,10 @@ public enum SmartMixPlanner {
         }
 
         // Otherwise the next song starts where the outgoing one has gone quiet.
+        // A longer silent tail is left out, so the next song still starts as the last sound dies.
         let duration = min(max(outgoing.quietEnding, minimumGaplessDuration), maximumGaplessDuration, longestOverlap)
-        return plan(.gapless, duration: duration, incomingStart: audibleStart)
+        let skippedSilence = max(0, min(outgoing.trailingSilence, outgoing.quietEnding - duration))
+        return plan(.gapless, duration: duration, outgoingStart: outgoingDuration - duration - skippedSilence, incomingStart: audibleStart)
     }
 
     public static func shouldStartTransition(
@@ -338,10 +335,10 @@ public enum SmartMixPlanner {
     /// Genre does not decide whether two songs blend: a Plex library's genres are too coarse ("Pop/Rock" on most
     /// songs) to stand in for Apple's genre list, so the audio decides. Genre only picks the Pop styles, which
     /// need both first genres to be plain Pop (or K-Pop), as in Apple's logs.
-    public static func genreMatch(outgoing: [String], incoming: [String]) -> SmartMixGenreMatch {
+    public static func blendStyles(outgoingGenres outgoing: [String], incomingGenres incoming: [String]) -> SmartMixBlendStyles {
         let pop: Set = ["pop", "k-pop", "kpop"]
         let mains = [outgoing, incoming].map { $0.first?.lowercased().trimmingCharacters(in: .whitespaces) ?? "" }
-        return mains.allSatisfy(pop.contains) ? .pop : .beatMatched
+        return mains.allSatisfy(pop.contains) ? .pop : .filter
     }
 
     /// Whether the two songs' keys are known to go together. Apple never refuses a blend over key; it only keeps
@@ -380,7 +377,7 @@ public enum SmartMixPlanner {
     /// The filter blend for most danceable genres; between two Pop songs, Apple's echo when the outgoing song
     /// can leave on a bar line, else its reverb (Apple draws between the two).
     private static func beatBlend(
-        genres: SmartMixGenreMatch,
+        styles: SmartMixBlendStyles,
         outgoingDuration: TimeInterval,
         incomingDuration: TimeInterval,
         outgoing: SmartMixAnalysis,
@@ -390,7 +387,7 @@ public enum SmartMixPlanner {
         func blend(_ style: SmartMixStyle, beats: Double) -> Blend? {
             beatBlend(style, beats: Int(beats), outgoingDuration: outgoingDuration, incomingDuration: incomingDuration, outgoing: outgoing, incoming: incoming, incomingStart: incomingStart)
         }
-        guard genres == .pop else {
+        guard styles == .pop else {
             return blend(keysCompatible(outgoing: outgoing, incoming: incoming) ? .filterExpansion : .filterBlend, beats: blendBeats)
         }
         guard let reverb = blend(.popReverb, beats: popReverbBeats) else { return nil }
@@ -415,7 +412,6 @@ public enum SmartMixPlanner {
         let droppedEnding = outgoing.fadeOutDuration ?? outgoing.quietEnding
         guard let outgoingGrid = outgoing.beatGrid, outgoingGrid.isTrusted,
               let incomingGrid = incoming.beatGrid, incomingGrid.isTrusted,
-              outgoing.outroLoudness >= minimumBlendLoudness,
               droppedEnding <= maximumDroppedEnding
         else {
             return nil
@@ -452,11 +448,7 @@ public enum SmartMixPlanner {
         }
 
         let duration = Double(beats) * 60 / ((outgoingBPM + incomingBPM) / 2)
-        guard outgoingBeats[first] >= untouchedDuration,
-              incomingDuration - incomingBeats[entry] - duration >= untouchedDuration
-        else {
-            return nil
-        }
+        guard incomingBeats[entry] + duration < incomingDuration else { return nil }
         return Blend(
             style: style,
             duration: duration,
@@ -676,7 +668,7 @@ private actor SmartMixSerialAnalyzer {
 /// One saved analysis per audio file, in Caches. A missing, unreadable or other-version file reads as nothing saved.
 struct SmartMixAnalysisStore: Sendable {
     /// Change whenever `SmartMixAnalysis` or the analysis behind it changes; files saved by another version are never read.
-    static let formatVersion = 2
+    static let formatVersion = 3
 
     let directory: URL
     let version: Int
@@ -691,8 +683,22 @@ struct SmartMixAnalysisStore: Sendable {
     }
 
     func load(key: String) -> SmartMixAnalysis? {
-        guard let data = try? Data(contentsOf: fileURL(key: key)) else { return nil }
+        let url = fileURL(key: key)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        // Marks the file as still in use for `removeUnused`.
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
         return try? PropertyListDecoder().decode(SmartMixAnalysis.self, from: data)
+    }
+
+    /// Deletes analyses not saved or read for `age`: songs no longer played, files that were replaced, and files
+    /// from an older format, none of which can be told apart by name.
+    func removeUnused(for age: TimeInterval = 90 * 24 * 3600, now: Date = Date()) {
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        for file in files {
+            guard let modified = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                  now.timeIntervalSince(modified) > age else { continue }
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     func save(_ analysis: SmartMixAnalysis, key: String) {
@@ -733,6 +739,7 @@ public final class SmartMixAnalysisService {
 
     init(store: SmartMixAnalysisStore) {
         self.store = store
+        Task.detached(priority: .background) { store.removeUnused() }
     }
 
     /// The next song change depends on this, so it runs as soon as it is asked for: during startup sync, during
@@ -809,14 +816,13 @@ public final class SmartMixAnalysisService {
         )
         let fadeOutStart = SmartMixLoudness.fadeOutStart(tail)
         let quietEnding = SmartMixLoudness.quietEnding(tail)
-        // The stretch a beat-matched blend would use: 16 s from the first sound, and 16 s up to the fade or the last sound.
-        let blendSamples = Int(16 / step)
-        let outroEnd = max(0, fadeOutStart ?? tail.count - Int(quietEnding / step))
+        // The sample scan above stops at 15 s; the loudness curve sees a longer silent tail.
+        let silentEnding = TimeInterval(tail.count - 1 - (tail.lastIndex { $0 > SmartMixLoudness.inaudibleLevel } ?? -1)) * step
 
         let (beatGrid, keys) = duration <= maximumBeatAnalysisDuration ? beatGridAndKeys(file: file) : (nil, nil)
         return SmartMixAnalysis(
             leadingSilence: leading,
-            trailingSilence: trailing,
+            trailingSilence: max(trailing, silentEnding),
             analyzedDuration: duration,
             quietEnding: quietEnding,
             fadeOutDuration: fadeOutStart.map { TimeInterval(tail.count - $0) * step },
@@ -824,7 +830,6 @@ public final class SmartMixAnalysisService {
                 TimeInterval((tail.lastIndex { $0 > SmartMixLoudness.inaudibleLevel } ?? start - 1) - start + 1) * step
             },
             bodyStartTime: SmartMixLoudness.bodyStart(head).map { TimeInterval($0) * step },
-            outroLoudness: meanLoudness(tail[max(0, outroEnd - blendSamples) ..< outroEnd]),
             beatGrid: beatGrid,
             keys: keys,
             vocalFreeUntil: duration <= maximumBeatAnalysisDuration ? vocalFreeUntil(fileURL: fileURL, firstSound: leading) : nil
@@ -882,10 +887,6 @@ public final class SmartMixAnalysisService {
         #else
         return nil
         #endif
-    }
-
-    private static func meanLoudness(_ curve: ArraySlice<Float>) -> Float {
-        curve.isEmpty ? SmartMixLoudness.floor : vDSP.mean(Array(curve))
     }
 
 

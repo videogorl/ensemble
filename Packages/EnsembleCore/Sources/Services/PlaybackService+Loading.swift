@@ -1063,9 +1063,9 @@ extension PlaybackService {
                     incomingDuration: smartMixContext.incomingDuration,
                     outgoingAnalysis: outgoingAnalysis,
                     incomingAnalysis: incomingAnalysis,
-                    blendGenres: tempoGate.allowed
-                        ? SmartMixPlanner.genreMatch(outgoing: currentTrack.genres, incoming: track.genres)
-                        : .unsuited
+                    blendStyles: tempoGate.allowed
+                        ? SmartMixPlanner.blendStyles(outgoingGenres: currentTrack.genres, incomingGenres: track.genres)
+                        : .none
                 ) {
                     let keys = SmartMixPlanner.keysCompatible(outgoing: outgoingAnalysis, incoming: incomingAnalysis)
                     EnsembleLogger.debug(
