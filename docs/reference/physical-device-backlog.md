@@ -1095,15 +1095,19 @@ Listening checks still owed on the iPhone and the Mac (SmartMix on, songs from d
 - Skip, seek, pause and reorder during each overlap behave as before.
 - The time shown after a beat-matched blend matches the audio.
 
-Added later the same day, not yet run on any device (the iPhone was locked; the build is installed):
+Run on the iPhone 16 Pro on 2026-11-18 (commit 3e4658fd, log `$TMPDIR/smartmix-16pro/phone3-launch-reverb.log`,
+judged from the log, not by ear):
 
-- SmartMix analysis no longer waits for startup sync or for the app to be frontmost. Cold-launch, start a
-  queue and seek near the end of the first song within the first minute: the log should show
-  `[SmartMix] Planned` before "Startup sync complete". Then lock the phone before a song change whose songs
-  were not analysed yet: the change should still be planned (before, it fell back to the 2 s cross-fade).
-- Each deck now has a reverb after its filters (bypassed outside a reverbed overlap). Ordinary playback,
-  gapless album playback and the four pairs above should behave as before.
-- Reverb variants: 13445 then 6163 (seek 168) and 8786 then 12206 (seek 140) should log `reverb=true`; the
-  old song's ending should ring on for a few seconds under the new song, with no reverb on the new song and
-  none left over at the following song change. 7278 then 7631 should log `reverb=false`.
+- Analysis no longer waits for startup sync: after a cold launch the plan for 13445 then 6163 was logged at
+  06:12:54, six seconds before "Startup sync complete".
+- That pair planned `style=overlap reverb=true`, started 0.4 s ahead as scheduled, advanced the queue at the
+  midpoint and carried on in the next song at 9.0 s. 7278 then 7631 planned `reverb=false`.
 
+Still owed:
+
+- Lock the phone before a song change whose songs were not analysed yet: the change should still be planned
+  (before, it fell back to the 2 s cross-fade). Not run: the phone cannot be locked over `devicectl`.
+- By ear: with 13445 then 6163 (seek 168) and 8786 then 12206 (seek 140) the old song's ending should ring on
+  for a few seconds under the new song, with no reverb on the new song and none left over at the following
+  song change. Ordinary and gapless album playback should sound as before (each deck now has a bypassed reverb
+  after its filters).
