@@ -1081,6 +1081,7 @@ extension PlaybackService {
                         + " incomingGrid=\(String(format: "%.2f", incomingAnalysis.beatGrid?.confidence ?? 0))"
                         + " keysCompatible=\(keys)"
                         + " incomingVocalFreeUntil=\(incomingAnalysis.vocalFreeUntil.map { String(format: "%.1fs", $0) } ?? "unknown")"
+                        + " genres=\(currentTrack.genres.first ?? "none")>\(track.genres.first ?? "none")"
                         + " tempoGate=\(tempoGate.reason ?? "open")"
                     )
                     guard SmartMixPlanner.shouldStartTransition(

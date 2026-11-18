@@ -1153,3 +1153,17 @@ Run on the iPhone SE (2nd generation, "Guest's iPhone", no passcode) on 2026-11-
 | 7278 then 7631 | `style=gapless` |
 
 Still owed: the same timing on the iPhone 16 Pro, the locked-phone check, and every by-ear check above.
+
+Second iPhone SE run on 2026-11-18 with the Pop rule tightened to plain Pop or K-Pop and the first genres added
+to the plan log (log `$TMPDIR/smartmix-16pro/se-pop-run.log`). Plans only; no transition was played.
+
+- 8996 then 8966 now plans `style=filterBlend overlap=14.9s outgoingStart=195.01s`, as the offline harness did.
+- The library's first genre is `Pop/Rock` on 8 of the 14 songs seen and missing on 4 (Valice); Magdalena Bay,
+  The Postal Service, Chappell Roan and Olivia Rodrigo all carry `Pop/Rock`. With the tightened rule no pair in
+  this library can take a Pop style; with the old rule every `Pop/Rock` pair did. Open decision: what stands in
+  for Apple's genre in a Plex library.
+- Nine pairs Apple mixed as Beat-Matched Pop (14517>14427, 8728>14434, 14427>8730, 6989>8731, 11743>14515,
+  11743>8919, 14511>8736, 14512>13290) and one it mixed with its harmonic style (11762>7827) all planned
+  gapless or overlap. Apart from genre: a beat grid under 0.6 on one side in 7 of 9, tempos more than 8% apart
+  in the other two, and singing within 2 to 15 s of the new song's start in all of them (Apple enters the new
+  song later, SmartMix from the top).

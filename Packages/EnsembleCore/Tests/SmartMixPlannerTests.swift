@@ -291,7 +291,8 @@ final class SmartMixPlannerTests: XCTestCase {
         let cases: [([String], [String], SmartMixGenreMatch)] = [
             (["Electronic", "Rock"], ["Synth-pop"], .beatMatched),
             (["Hip-Hop/Rap"], ["R&B"], .beatMatched),
-            (["Indie Pop"], ["K-POP"], .pop),
+            (["Pop"], ["K-POP"], .pop),
+            (["Indie Pop"], ["Pop"], .beatMatched),
             (["Rock", "Electronic"], ["Pop"], .unsuited),
             (["Pop"], [], .unsuited),
         ]
