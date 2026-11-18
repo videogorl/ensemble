@@ -400,9 +400,9 @@ public enum SmartMixTempoEstimator {
     public static let minimumBPM: Double = 70
     public static let maximumBPM: Double = 180
 
-    private static let analysisRate = 11_025.0
-    private static let window = 1024
-    private static let hop = 128
+    static let analysisRate = 11_025.0
+    static let window = 1024
+    static let hop = 128
     private static let bandCount = 24
 
     public static func estimate(
@@ -475,7 +475,7 @@ public enum SmartMixTempoEstimator {
     }
 
     /// Rises in loudness across `bandCount` log-spaced frequency bands, minus a 87-frame running mean.
-    private static func onsetStrength(_ samples: [Float]) -> [Float] {
+    static func onsetStrength(_ samples: [Float]) -> [Float] {
         let frames = 1 + (samples.count - window) / hop
         let log2n = vDSP_Length(10)
         let half = window / 2

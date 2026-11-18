@@ -223,6 +223,38 @@ final class SmartMixPlannerTests: XCTestCase {
         XCTAssertNil(SmartMixTempoEstimator.estimate(monoSamples: [Float](repeating: 0, count: 44_100 * 20), sampleRate: 44_100))
     }
 
+    func testBeatGridFindsBeatsAndBarLinesInAnAccentedClickTrack() throws {
+        // One pickup beat, then bars of four whose first beat adds a bass thump and a new held chord.
+        let rate = 44_100.0
+        let firstClick = 0.25
+        var (samples, period) = clickTrack(bpm: 120, firstClick: firstClick, duration: 60)
+        let clicks = Array(stride(from: firstClick, to: 59.9, by: period))
+        let downbeats = Array(clicks.dropFirst().enumerated().filter { $0.offset % 4 == 0 }.map(\.element))
+        for (bar, start) in downbeats.enumerated() {
+            let pitches: [Double] = bar % 2 == 0 ? [261.63, 329.63, 392] : [293.66, 369.99, 440]
+            let first = Int(start * rate)
+            for index in 0 ..< Int(4 * period * rate) where first + index < samples.count {
+                let seconds = Double(index) / rate
+                var sample = 0.6 * exp(-seconds * 12) * sin(2 * .pi * 60 * seconds)
+                for pitch in pitches { sample += 0.05 * sin(2 * .pi * pitch * seconds) }
+                samples[first + index] += Float(sample)
+            }
+        }
+
+        let grid = try XCTUnwrap(SmartMixBeatGrid.analyze(monoSamples: samples, sampleRate: rate))
+        XCTAssertEqual(grid.bpm, 60 / period, accuracy: 60 / period * 0.015)
+        XCTAssertTrue(grid.hasTrustedBars, "confidence \(grid.confidence), bars \(grid.barConfidence)")
+        func nearest(_ time: TimeInterval, in times: [TimeInterval]) -> TimeInterval {
+            times.map { abs($0 - time) }.min() ?? .infinity
+        }
+        // The grid's latency is set for music; a click out of silence registers about 40 ms early.
+        XCTAssertTrue(clicks.allSatisfy { nearest($0, in: grid.beatTimes) <= 0.05 })
+        XCTAssertTrue(downbeats.allSatisfy { nearest($0, in: grid.downbeatTimes) <= 0.05 })
+        XCTAssertEqual(grid.downbeatTimes.count, downbeats.count, accuracy: 1)
+
+        XCTAssertNil(SmartMixBeatGrid.analyze(monoSamples: [Float](repeating: 0, count: 44_100 * 20), sampleRate: rate))
+    }
+
     private func tempo(
         bpm: Double,
         confidence: Double,

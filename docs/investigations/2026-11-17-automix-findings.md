@@ -210,6 +210,32 @@ SmartMix's own confidence is 0.82 or more (the rest of those are at half, double
 chroma key detector tried offline matched Apple's key on 58% of 118 songs and a related key (relative, parallel
 or a fifth away) on another 29%.
 
+## On-device analysis, stage 1: beat grid and bar lines (2026-11-18)
+
+`SmartMixBeatGrid` (not used by playback yet) tracks beats through the whole song by dynamic programming over
+the existing onset curve, and picks the bar line as the beat phase where harmony, timbre and bass change most.
+Scored against Apple's `beats` and `bars` for 316 songs of the same master (within 70 ms, after removing a
+constant offset of up to 100 ms per song; the tracking tightness, confidence formula and thresholds were tuned
+on these same songs):
+
+| | Share |
+|---|---|
+| Beats match Apple's | 60% (55% without the offset correction) |
+| At double or half Apple's tempo | 10% |
+| On the off-beat | 1% |
+| Wrong | 29%, mostly a tempo Apple reads differently (2:3, 4:3) or sliding between beat and off-beat |
+| Bar line matches, when the beats do | 81% (chance is 25%; misses are half a bar or one beat) |
+
+A confidence from the audio alone (tempo clarity, steadiness of the beat phase, agreement with a looser run)
+at 0.7 or more trusts 31% of songs; of those 86% match Apple's beats, 93% counting double or half tempo, and
+72% match beats and bar line. Pop is best (94% right when trusted), Rock worst (37% right overall), and
+Electronic misses are all a tempo-level choice (Apple 150 to 174 BPM, SmartMix 75 to 88). Apple's beats are
+not a fixed grid: half the songs stray 0.4 s or more from a straight line. Cost in a release build on the
+Mac: 0.31 s to decode a four-minute song and 0.035 s to analyse it.
+
+The existing 30 s tempo estimate places its beat about 50 ms late against Apple's beats. Both songs of a blend
+carry the same error, so it cancels in the alignment.
+
 ## Answers so far to the four questions
 
 - Same genre: mostly Dead-Air Removal like everything else; beat-matching appears for danceable genres.
