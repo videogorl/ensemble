@@ -733,9 +733,11 @@ public final class SmartMixAnalysisService {
 
         let store = store
         let task = Task.detached(priority: .utility) {
-            if let saved = store.load(key: cacheKey) { return saved }
+            // The neural-beats experiment analyses every song afresh and keeps its results out of the saved files.
+            let usesStore = !SmartMixNeuralBeats.isEnabled
+            if usesStore, let saved = store.load(key: cacheKey) { return saved }
             let analysis = await Self.serialAnalyzer.analysis(fileURL: fileURL)
-            if analysis.analyzedDuration > 0 { store.save(analysis, key: cacheKey) }
+            if usesStore, analysis.analyzedDuration > 0 { store.save(analysis, key: cacheKey) }
             return analysis
         }
         withLock { analysisTasks[cacheKey] = task }
@@ -812,6 +814,17 @@ public final class SmartMixAnalysisService {
                 stage("decode")
                 beatGrid = SmartMixBeatGrid.analyze(reducedSamples: reduced.samples, rate: reduced.rate)
                 stage("beats")
+                if SmartMixNeuralBeats.isEnabled {
+                    let onset = beatGrid
+                    beatGrid = SmartMixNeuralBeats.analyze(fileURL: fileURL)
+                    stage("neuralBeats")
+                    EnsembleLogger.debug(
+                        "[SmartMix] Neural beats: " + [("neural", beatGrid), ("onset", onset)].map { name, grid in
+                            guard let grid else { return "\(name)=none" }
+                            return String(format: "%@=%.1fbpm/%d beats/confidence %.2f/bar %.2f", name, grid.bpm, grid.beatTimes.count, grid.confidence, grid.barConfidence)
+                        }.joined(separator: " ")
+                    )
+                }
                 keys = SmartMixKeys.analyze(reducedSamples: reduced.samples, rate: reduced.rate)
                 stage("key")
             }

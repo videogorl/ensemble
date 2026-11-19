@@ -377,3 +377,28 @@ to 4; the two added pairs are ones Apple does not beat-match (see the device bac
   stage is slow only because debug builds are not optimised: on the Mac the same song takes 3.1 s in the beat
   stage unoptimised and 0.04 s optimised (whole analysis 4.9 s against 0.6 s). A release build on the phones
   has not been timed.
+
+## Experiment: neural beat tracker through Core ML (2026-11-18)
+
+`SmartMixNeuralBeats` runs the small Beat This! model (CPJKU, ISMIR 2024; code and weights MIT) converted to
+Core ML with the log-mel front end inside the model (half precision, 7.5 MB compiled). It is on only under
+automation with `ENSEMBLE_AUTOMATION_SMARTMIX_NEURAL_BEATS=1`, where it replaces the onset tracker's grid and
+saved analyses are neither read nor written. Conversion needed two workarounds in coremltools 9 (torch 2.7,
+`torch.jit.trace`): the rotary embedding's `einsum('..., f -> ... f')` rewritten as a broadcast multiply, and
+`aten::Int` accepting one-element arrays.
+
+Scored on the same 315 songs and rule as stage 1 (the model was not tuned on them; the onset tracker was):
+
+| | Onset tracker | Neural (Swift path, Mac) |
+|---|---|---|
+| Beats match Apple's, all songs | 60% | 72% |
+| At double or half | 10% | 7% |
+| Songs trusted | 41% (confidence 0.6) | 76% (90% of beats on a steady tempo) |
+| Trusted songs matching Apple's beats | 83% | 82% (89% counting double or half) |
+| Bar line right when beats are | 81% | 85% |
+| Rock, all songs | 37% | 60% |
+| Time per song, Mac | 0.04 s | 1.6 s (debug build; inference dominates) |
+
+So it does not make a trusted grid more accurate; it nearly doubles how many songs get one. It costs about 40
+times the processor time of the onset tracker. The network marks no beats in passages without a pulse; the
+grid fills gaps that are a whole number of beats. Not yet run on a phone (the iPhone SE was unreachable).

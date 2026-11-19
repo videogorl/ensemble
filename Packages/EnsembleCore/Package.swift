@@ -35,7 +35,8 @@ let package = Package(
                 "Nuke",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
             ],
-            path: "Sources"
+            path: "Sources",
+            resources: [.copy("Resources/BeatThis.mlmodelc"), .copy("Resources/BeatThis-LICENSE.txt")]
         ),
         .testTarget(
             name: "EnsembleCoreTests",
