@@ -1040,3 +1040,10 @@ Phone check: `docs/reference/physical-device-backlog.md`, "launched on cellular 
   exports its id as plain text, so any text drop target accepts it. Impact: cosmetic, a stray id string in the field.
   Next step: export a private content type instead of a string from `PinnedReorderTransfer`.
 
+- **Ensemble uses about three quarters of a processor core while playing in the foreground on the iPhone SE
+  (suspected, debug build 202611181730, 2026-11-19).** Evidence: two 240 s Time Profiler traces show Ensemble at
+  about 3.8 s of CPU per 5 s whenever the screen was on and nothing was being analysed, falling to about 0.8 s
+  per 5 s in the stretches where it was not drawing; `backboardd` added 60 to 80 s per trace and
+  `AuroraMetalRenderer.draw(in:)` is in the samples. On the 16 Pro with the screen off the app used under 2% of
+  a core. Impact: likely the larger share of the warmth during playback with Now Playing open. Next step:
+  profile a release build on Now Playing with the visualizer on and off.

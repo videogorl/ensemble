@@ -1198,8 +1198,7 @@ iPhone SE run on 2026-11-18 of the build where the song's opening picks the styl
 - 14516 then 8914 plans `popReverb`, 8.2 s (Apple: Pop reverb, 8.3 s). 8996 then 8966 still plans `filterBlend`.
 - Owed by ear: the echo and the Pop reverb transitions; a release-build timing of the analysis on a phone.
 
-- **SmartMix neural beat tracker experiment (2026-11-18):** not run on a phone; the iPhone SE was unavailable to
-  the Mac. Owed: launch build 202611181730 or later with `ENSEMBLE_AUTOMATION_MODE=1` and
-  `ENSEMBLE_AUTOMATION_SMARTMIX_NEURAL_BEATS=1`, play two songs, and read `neuralBeats=` in the
-  `[SmartMix] Analysed` line (time per song) and the `[SmartMix] Neural beats:` line; watch thermal state.
+- **SmartMix neural beat tracker experiment:** run on the iPhone SE on 2026-11-19 (results in
+  `docs/investigations/2026-11-17-automix-findings.md`). Still owed: energy in joules (Power Profiler saved no
+  trace over the cable; try an on-device recording from Settings, Developer) and a run on a cold phone.
   Also owed: release-build analysis times from the iPhone 16 Pro (build 202611181713 installed).

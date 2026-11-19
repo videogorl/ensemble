@@ -401,4 +401,20 @@ Scored on the same 315 songs and rule as stage 1 (the model was not tuned on the
 
 So it does not make a trusted grid more accurate; it nearly doubles how many songs get one. It costs about 40
 times the processor time of the onset tracker. The network marks no beats in passages without a pulse; the
-grid fills gaps that are a whole number of beats. Not yet run on a phone (the iPhone SE was unreachable).
+grid fills gaps that are a whole number of beats.
+
+On the iPhone SE (2nd generation, iOS 27.2.1, debug build 202611181730, on USB power, 2026-11-19), four songs of
+222 to 289 s, the same songs in both runs, the neural run second:
+
+| | Onset tracker | Neural |
+|---|---|---|
+| Beat stage per song | 4.0 to 5.1 s | 24.6 to 47.5 s |
+| Whole analysis per song | about 7.5 s | about 30 to 57 s |
+| Thermal state over the 4 minutes | stayed nominal | fair after 45 s, serious after 90 s |
+| Blend planned for the last pair | yes | blocked by the thermal gate |
+
+The first pair's plan never ran in the neural run: the second song's analysis finished 115 s after playback
+began. The neural run started on a phone the first run had already warmed, so the thermal result is an upper
+bound. Energy in joules was not measured: Xcode's Power Profiler template saved no trace over the cable (two
+attempts), and the Time Profiler cannot attribute the model's work, which runs outside the app's CPU threads
+(`MTLCompilerService` appeared with 22 s of CPU). As built, the model is too slow and too hot for this phone.
