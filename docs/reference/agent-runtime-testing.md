@@ -53,6 +53,26 @@ Use the lower-level recipes below for lifecycle scenarios requiring an existing
 process, Release/performance work, or custom launch arguments. The helper
 deliberately cold-launches and replaces the installed Debug app.
 
+## Rules For Felicity's Devices And Accounts
+
+These hold for every agent and thread; a request in the current conversation can change them.
+
+- **Never:** use iPhone Mirroring; type at a sign-in, password or passcode prompt (ask Felicity to unlock instead);
+  sign out of or remove the Plex account; change data you did not create.
+- **Plex library:** read freely; check with Felicity before anything that mutates it (ratings, playlists other than
+  disposable ones, deletions).
+- **Disposable test data:** playlists and shortcuts named "ZZ Test…" may be created and must be deleted afterwards.
+- **iPhone SE** (`00008030-00090C493C13402E`): no passcode, wake it yourself. It is signed in to an Apple Music test
+  account: use only the songs already in that library; no downloads, favorites, settings changes, trials or offers.
+  Adding a song to the library needs Felicity's go-ahead, and the app cannot remove it again, so list every song you
+  added in your report.
+- **iPhone 16 Pro** (`00008140-00023030117B001C`, on Bigmac): Felicity's own phone, so be conservative. No Apple Music
+  favorites or library changes, only "ZZ Test…" playlists and shortcuts, volume only down, never pick an AirPlay or
+  Bluetooth route (there are HomePods in the house), and lock it when done.
+- **Minibar:** its audio output cannot be muted; do not start playback on the Mac.
+- **App Store Connect:** read-only, and touch no other browser tabs.
+- End a device report with what you left behind: installed build, songs or playlists added, playback state, lock state.
+
 ## Assign Isolated Lanes
 
 Each simulator runner owns:

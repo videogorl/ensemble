@@ -124,6 +124,9 @@ playback through debug routes and the `automation.playback.probe` element).
 Add a test method rather than driving the screen by hand. Use Device Hub or
 Computer Use only for what a scripted test cannot reach.
 
+Before driving a physical device or a signed-in account, read "Rules For
+Felicity's Devices And Accounts" in `docs/reference/agent-runtime-testing.md`.
+
 Track every simulator UUID used. When finished using them, shut down each of
 those simulators and verify its state is `Shutdown` before handoff. Coordinate
 with any other active runner using the same simulator; never use

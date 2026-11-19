@@ -27,6 +27,8 @@ public struct ProfileView: View {
 
     #if DEBUG
     @AppStorage("debugSimulateOffline") private var debugSimulateOffline = false
+    @AppStorage(ExternalDisplayPreference.nowPlayingEnabledKey)
+    private var externalDisplayNowPlayingEnabled = ExternalDisplayPreference.defaultNowPlayingEnabled
     #endif
 
     private static let supportURL = URL(string: "https://ensemble.videogorl.me")!
@@ -431,6 +433,15 @@ public struct ProfileView: View {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.waveform,
                     title: "Audio Quality",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
+            }
+
+            Toggle(isOn: $externalDisplayNowPlayingEnabled) {
+                EnsembleUtilityRowLabel(
+                    iconSystemName: "tv",
+                    title: "Now Playing on Mirrored Display",
+                    subtitle: "Off shows the app itself when mirroring. This device only.",
                     iconColor: EnsembleDesign.Color.primaryText
                 )
             }

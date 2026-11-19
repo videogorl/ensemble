@@ -25,6 +25,12 @@ class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard session.role == .windowExternalDisplayNonInteractive,
               let windowScene = scene as? UIWindowScene else { return }
 
+        // Without a window the system keeps mirroring the app itself.
+        guard ExternalDisplayPreference.storedNowPlayingEnabled() else {
+            EnsembleLogger.debug("[ExternalDisplay] Now Playing view disabled — leaving display mirrored")
+            return
+        }
+
         let externalScreen = windowScene.screen
         let screenBounds = externalScreen.bounds
         let screenScale = externalScreen.scale
