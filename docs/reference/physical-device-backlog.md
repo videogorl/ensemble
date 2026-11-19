@@ -1201,3 +1201,8 @@ iPhone SE run on 2026-11-18 of the build where the song's opening picks the styl
 - **SmartMix neural beat tracker experiment:** closed 2026-11-19. Run on the iPhone SE, then dropped; the
   release-build analysis times from the iPhone 16 Pro were read the same day (both in
   `docs/investigations/2026-11-17-automix-findings.md`).
+
+- **Siri phrase "Turn on SmartMix in Ensemble" (2026-11-19, release build 202611190813):** on the iPhone SE, typing
+  the phrase in Spotlight offered Ensemble's "SmartMix On" and "SmartMix Off" tiles, and "SmartMix On" answered
+  "SmartMix is on." Owed: saying it aloud to Siri (on 2026-11-18 a spoken request was heard as "smart nixon" and
+  treated as a song to play), and "Turn off SmartMix in Ensemble".

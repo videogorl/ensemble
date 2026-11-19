@@ -1047,9 +1047,3 @@ Phone check: `docs/reference/physical-device-backlog.md`, "launched on cellular 
   `AuroraMetalRenderer.draw(in:)` is in the samples. On the 16 Pro with the screen off the app used under 2% of
   a core. Impact: likely the larger share of the warmth during playback with Now Playing open. Next step:
   profile a release build on Now Playing with the visualizer on and off.
-
-- **Siri cannot turn SmartMix on by voice (confirmed, iPhone 16 Pro, build 202611181713, 2026-11-18 19:40).**
-  Evidence: a spoken request arrived as a play request for a track named "smart nixon" and ended in "Track could
-  not be found"; `SetEnsembleSmartMixIntent` exists (`NowPlayingIntents.swift:324`) but no `AppShortcut` gives
-  it a spoken phrase. Impact: the setting is reachable only from the app or a Shortcuts action. Next step: add
-  an App Shortcut with phrases such as "Turn on SmartMix in Ensemble" and check how Siri transcribes "SmartMix".

@@ -65,17 +65,18 @@ enum EnsemblePlaybackOption: String, AppEnum {
     case smartMixOn
     case smartMixOff
 
+    // The "On …" and "Off …" synonyms let "Turn on SmartMix in Ensemble" match the "Turn <option>" phrase.
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Playback Option")
     static var caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .shuffleOn: DisplayRepresentation(title: "Shuffle On", synonyms: ["Shuffle", "Shuffle Music"]),
-        .shuffleOff: DisplayRepresentation(title: "Shuffle Off", synonyms: ["Stop Shuffling", "No Shuffle"]),
+        .shuffleOn: DisplayRepresentation(title: "Shuffle On", synonyms: ["Shuffle", "Shuffle Music", "On Shuffle"]),
+        .shuffleOff: DisplayRepresentation(title: "Shuffle Off", synonyms: ["Stop Shuffling", "No Shuffle", "Off Shuffle"]),
         .repeatOff: DisplayRepresentation(title: "Repeat Off", synonyms: ["No Repeat", "Stop Repeating"]),
         .repeatAll: DisplayRepresentation(title: "Repeat All", synonyms: ["Repeat Everything", "Repeat the Queue", "Repeat"]),
         .repeatOne: DisplayRepresentation(title: "Repeat One", synonyms: ["Repeat This Song", "Repeat Song", "Repeat the Song"]),
-        .autoplayOn: DisplayRepresentation(title: "Autoplay On", synonyms: ["Autoplay"]),
-        .autoplayOff: DisplayRepresentation(title: "Autoplay Off", synonyms: ["Stop Autoplay"]),
-        .smartMixOn: DisplayRepresentation(title: "SmartMix On", synonyms: ["Smart Mix On", "SmartMix", "Smart Mix"]),
-        .smartMixOff: DisplayRepresentation(title: "SmartMix Off", synonyms: ["Smart Mix Off"])
+        .autoplayOn: DisplayRepresentation(title: "Autoplay On", synonyms: ["Autoplay", "On Autoplay"]),
+        .autoplayOff: DisplayRepresentation(title: "Autoplay Off", synonyms: ["Stop Autoplay", "Off Autoplay"]),
+        .smartMixOn: DisplayRepresentation(title: "SmartMix On", synonyms: ["Smart Mix On", "SmartMix", "Smart Mix", "On SmartMix", "On Smart Mix"]),
+        .smartMixOff: DisplayRepresentation(title: "SmartMix Off", synonyms: ["Smart Mix Off", "Off SmartMix", "Off Smart Mix"])
     ]
 }
 

@@ -61,6 +61,7 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             intent: SetEnsemblePlaybackOptionIntent(),
             phrases: [
                 "Turn \(\.$option) in \(.applicationName)",
+                "Turn \(\.$option) on \(.applicationName)",
                 "Set \(\.$option) in \(.applicationName)"
             ],
             shortTitle: "Playback Option",
