@@ -380,7 +380,9 @@ to 4; the two added pairs are ones Apple does not beat-match (see the device bac
 
 ## Experiment: neural beat tracker through Core ML (2026-11-18)
 
-`SmartMixNeuralBeats` runs the small Beat This! model (CPJKU, ISMIR 2024; code and weights MIT) converted to
+**Outcome: dropped on 2026-11-19; the code and model were removed (they are in commit `49f1a26e`).**
+
+`SmartMixNeuralBeats` ran the small Beat This! model (CPJKU, ISMIR 2024; code and weights MIT) converted to
 Core ML with the log-mel front end inside the model (half precision, 7.5 MB compiled). It is on only under
 automation with `ENSEMBLE_AUTOMATION_SMARTMIX_NEURAL_BEATS=1`, where it replaces the onset tracker's grid and
 saved analyses are neither read nor written. Conversion needed two workarounds in coremltools 9 (torch 2.7,
@@ -418,3 +420,10 @@ began. The neural run started on a phone the first run had already warmed, so th
 bound. Energy in joules was not measured: Xcode's Power Profiler template saved no trace over the cable (two
 attempts), and the Time Profiler cannot attribute the model's work, which runs outside the app's CPU threads
 (`MTLCompilerService` appeared with 22 s of CPU). As built, the model is too slow and too hot for this phone.
+
+### Release-build analysis times, iPhone 16 Pro (2026-11-18 evening)
+
+Forty songs analysed during ordinary listening on release build 202611181713: median 0.76 s per song for the
+whole analysis (0.46 to 2.29 s; decode 0.26 s, vocals 0.24 s, edges 0.21 s, beats 0.04 s, key 0.01 s), about
+0.2 s per minute of audio, against 7 to 9 s on the debug build. The thermal state stayed nominal for the whole
+of both sessions (about 2.5 hours), with 68 transitions planned.
